@@ -453,7 +453,10 @@ function playCard(room, cardIndex) {
   if (cardIndex === undefined || cardIndex < 0 || cardIndex >= s.players[p].length) return;
   const card = s.players[p][cardIndex];
   if (s.currentTrick.length > 0 && !isValidPlay(s.players[p], card, s.leadCard, s.trumpSuit)) {
-    const need = s.leadCard ? (s.leadCard.suit === 'joker' ? '主牌' : s.leadCard.suit) : '同花色';
+    let need;
+    if (!s.leadCard) need = '同花色';
+    else if (isTrump(s.leadCard, s.trumpSuit)) need = '主牌';
+    else need = s.leadCard.suit;
     io.to(room.id).emit('msg', `跟牌不合法：必须跟 ${need}`);
     return;
   }
