@@ -139,11 +139,13 @@ function initRoom(room) {
     returnPartnerCount: 0,
     sweepInfo: null,
     flipBy: -1,
+    declareBy: -1,
     revealIndex: 0,
     revealedBottom: [],
     nextRoundReady: [false, false, false, false],
     returnDealerSubmit: null,
     returnPartnerSubmit: null,
+    trickPaused: false,
   };
 }
 
@@ -181,6 +183,7 @@ function declareTwo(room, p) {
   }
   if (!chosen) return;
   s.trumpSuit = chosen.suit;
+  s.declareBy = p;
   if (s.dealer === -1) s.dealer = p;
 
   // 办2后，直接把剩余牌一次性发完（每人补到 12 张）
@@ -194,7 +197,6 @@ function declareTwo(room, p) {
   }
   for (let k = 0; k < 4; k++) sortHand(s.players[k], s.trumpSuit);
 
-  // 检查是否发完
   if (s.dealtCounts.every(c => c >= 12)) finishDealing(room);
 }
 
@@ -249,7 +251,6 @@ function finishFlipReveal(room) {
       return;
     }
   }
-  if (s.flipBy === (s.dealer + 1) % 4) s.supplyFromOverride = (s.flipBy + 2) % 4;
   for (let k = 0; k < 4; k++) sortHand(s.players[k], s.trumpSuit);
   s.revealedBottom = [];
   s.revealIndex = 0;
@@ -295,7 +296,19 @@ function enterSupplyOrPlay(room) {
   const s = room.state;
   const ps = s.pendingSupply;
   if (ps && ps.cards > 0) {
-    const from = s.supplyFromOverride >= 0 ? s.supplyFromOverride : (s.dealer + 1) % 4;
+    // 根据本局的办二者 / 翻底者确定上供者
+    const dealerTeam = s.dealer % 2;
+    let from;
+    if (s.declareBy >= 0 && (s.declareBy % 2) !== dealerTeam) {
+      // 副家有人办二 → 上供者 = 办二者的对家
+      from = (s.declareBy + 2) % 4;
+    } else if (s.flipBy >= 0 && (s.flipBy % 2) !== dealerTeam) {
+      // 无人办二，副家某人翻底 → 上供者 = 翻底者的对家
+      from = (s.flipBy + 2) % 4;
+    } else {
+      // 默认：庄家的下家
+      from = (s.dealer + 1) % 4;
+    }
     s.supplyFrom = from;
     s.supplyCount = ps.cards;
 
@@ -448,7 +461,7 @@ function confirmReturn(room, dealerIndices, partnerIndices) {
 // ---------- 出牌 ----------
 function playCard(room, cardIndex) {
   const s = room.state;
-  if (s.phase !== 'play' || s.sweepInfo) return;
+  if (s.phase !== 'play' || s.sweepInfo || s.trickPaused) return;
   const p = s.currentPlayer;
   if (cardIndex === undefined || cardIndex < 0 || cardIndex >= s.players[p].length) return;
   const card = s.players[p][cardIndex];
@@ -471,21 +484,33 @@ function trySweep(room, indices) {
   const s = room.state;
   if (s.phase !== 'play' || s.currentTrick.length !== 0) return;
   const p = s.currentPlayer;
-  if (!indices || indices.length < 2) return;
+  if (!indices || indices.length < 2) {
+    io.to(room.id).emit('msg', '甩牌至少需要 2 张');
+    io.to(room.id).emit('clearSelection');
+    return;
+  }
   const cards = indices.map(i => s.players[p][i]);
   const allTrump = cards.every(c => isTrump(c, s.trumpSuit));
   let suit0 = null;
   if (!allTrump) {
     suit0 = cards[0].suit;
-    if (!cards.every(c => c.suit === suit0 && !isTrump(c, s.trumpSuit))) return;
+    if (!cards.every(c => c.suit === suit0 && !isTrump(c, s.trumpSuit))) {
+      io.to(room.id).emit('msg', '甩牌必须同一花色或都是主牌');
+      io.to(room.id).emit('clearSelection');
+      return;
+    }
   }
   if (!checkSweep(s.players, p, cards, s.trumpSuit, allTrump)) {
-    if (allTrump) { io.to(room.id).emit('msg', '主牌甩牌失败，可自由出牌'); return; }
+    if (allTrump) {
+      io.to(room.id).emit('msg', '主牌甩牌失败，可自由出牌');
+      io.to(room.id).emit('clearSelection');
+      return;
+    }
     let min = cards[0], mi = indices[0];
     for (let k = 0; k < cards.length; k++) {
       if (RANKS.indexOf(cards[k].rank) < RANKS.indexOf(min.rank)) { min = cards[k]; mi = indices[k]; }
     }
-    const sorted = indices.sort((a, b) => b - a);
+    const sorted = [...indices].sort((a, b) => b - a);
     for (const i of sorted) if (i !== mi) s.players[p].splice(i, 1);
     const newIdx = s.players[p].findIndex(c => c === min);
     s.players[p].splice(newIdx, 1);
@@ -495,7 +520,7 @@ function trySweep(room, indices) {
     io.to(room.id).emit('msg', `甩牌失败，出最小：${min.suit === 'joker' ? min.rank : min.suit + min.rank}`);
     return;
   }
-  const sorted = indices.sort((a, b) => b - a);
+  const sorted = [...indices].sort((a, b) => b - a);
   for (const i of sorted) s.players[p].splice(i, 1);
   s.leadCard = cards[0];
   s.currentTrick.push({ player: p, card: cards[0], cards, sweep: true });
@@ -506,7 +531,7 @@ function trySweep(room, indices) {
 
 function playSweepFollow(room, indices) {
   const s = room.state;
-  if (!s.sweepInfo || s.phase !== 'play') return;
+  if (!s.sweepInfo || s.phase !== 'play' || s.trickPaused) return;
   const need = s.sweepInfo.count;
   if (!indices || indices.length !== need) return;
   const p = s.currentPlayer;
@@ -527,6 +552,17 @@ function playSweepFollow(room, indices) {
 }
 
 function resolveTrick(room) {
+  const s = room.state;
+  if (s.trickPaused) return;
+  s.trickPaused = true;
+  setTimeout(() => {
+    s.trickPaused = false;
+    resolveTrickFinalize(room);
+    broadcastState(room.id);
+  }, 1500);
+}
+
+function resolveTrickFinalize(room) {
   const s = room.state;
   const ts = s.trumpSuit;
   let winner;

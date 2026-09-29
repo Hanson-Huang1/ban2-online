@@ -179,10 +179,18 @@ function initSocket() {
     render();
   });
 
-  socket.on('msg', (m) => {
+   socket.on('msg', (m) => {
     const el = document.getElementById('msg');
     el.textContent = m;
     setTimeout(() => { if (el.textContent === m) el.textContent = ''; }, 5000);
+  });
+
+  socket.on('clearSelection', () => {
+    selCards.clear();
+    supplySel.clear();
+    returnDealerSel.clear();
+    returnPartnerSel.clear();
+    render();
   });
 
   socket.on('err', (m) => alert(m));
@@ -362,8 +370,9 @@ function render() {
       }
     }
   } else if (s.phase === 'play') {
-
-    if (myIndex === s.currentPlayer) {
+    if (s.currentTrick.length === 4) {
+      ah += `<span style="color:#aaa;font-size:12px;">本轮结束，展示中...</span>`;
+    } else if (myIndex === s.currentPlayer) {
       if (s.sweepInfo && s.currentTrick.length > 0) {
         const need = s.sweepInfo.count;
         ah += `<button class="btn-ok" onclick="send('playSweepFollow',{indices:[...selCards]})" ${selCards.size === need ? '' : 'disabled'}>跟牌 (${selCards.size}/${need})</button>`;
