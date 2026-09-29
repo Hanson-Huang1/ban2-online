@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>办二联机版</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body { font-family: 'Microsoft YaHei', Arial, sans-serif; background: #1a5c2a; color: #fff; margin: 0; padding: 8px; font-size: 14px; }
+  h1 { text-align: center; font-size: 18px; margin: 8px 0; }
+  .lobby { text-align: center; margin-top: 40px; }
+  .lobby input { padding: 10px; font-size: 18px; width: 140px; text-align: center; text-transform: uppercase; border-radius: 8px; border: none; }
+  .lobby button { padding: 10px 24px; font-size: 16px; margin: 8px; border: none; border-radius: 8px; background: #f39c12; color: #fff; font-weight: bold; }
+  .waiting { text-align: center; margin-top: 60px; font-size: 18px; color: #f1c40f; }
+  .game { display: none; }
+  .top-bar { display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.4); padding: 8px 12px; border-radius: 8px; margin-bottom: 8px; }
+  .top-bar .trump { color: #f1c40f; font-weight: bold; }
+  .top-bar .vice { color: #2ecc71; font-weight: bold; }
+  .msg { text-align: center; color: #f1c40f; font-weight: bold; min-height: 20px; margin: 6px 0; font-size: 13px; }
+  .trick { background: rgba(0,0,0,0.5); border-radius: 8px; padding: 8px; margin: 6px 0; min-height: 70px; }
+  .trick .play { display: inline-block; margin: 2px 6px 2px 0; text-align: center; vertical-align: top; }
+  .trick .play .who { font-size: 10px; color: #f1c40f; }
+  .trick .play .card { width: 34px; height: 50px; font-size: 12px; margin: 1px; }
+  .others { font-size: 12px; color: #aaa; margin: 4px 0; }
+  .others .cur { color: #f1c40f; font-weight: bold; }
+  .hand { display: flex; flex-wrap: wrap; gap: 3px; padding: 6px; background: rgba(0,0,0,0.2); border-radius: 8px; min-height: 70px; }
+  .card { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 50px; background: #fff; color: #000; border-radius: 5px; font-weight: bold; font-size: 12px; border: 2px solid #333; cursor: pointer; user-select: none; position: relative; transition: transform 0.1s; }
+  .card.red { color: red; }
+  .card.trump { box-shadow: 0 0 6px gold; }
+  .card.sel { border: 3px solid #f1c40f; transform: translateY(-6px); }
+  .card.back { background: #34495e; color: transparent; }
+  .card .sm { position: absolute; top: 1px; right: 2px; font-size: 8px; color: #e67e22; }
+  .actions { text-align: center; margin: 10px 0; }
+  .actions button { padding: 8px 18px; margin: 3px; font-size: 14px; border: none; border-radius: 6px; background: #f39c12; color: #fff; font-weight: bold; }
+  .actions button:disabled { background: #666; }
+  .btn-ok { background: #27ae60 !important; }
+  .btn-sweep { background: #9b59b6 !important; }
+  .btn-draw { background: #3498db !important; }
+  .btn-ban2 { background: #e74c3c !important; }
+  .reveal { background: rgba(52,152,219,0.2); border: 1px solid #3498db; border-radius: 6px; padding: 6px; margin: 6px 0; text-align: center; font-size: 12px; }
+  .reveal .card { width: 28px; height: 42px; font-size: 10px; margin: 1px; }
+  .supply { background: rgba(255,215,0,0.15); border: 1px solid #f1c40f; border-radius: 6px; padding: 6px; margin: 6px 0; text-align: center; font-size: 12px; }
+  .supply .card { width: 28px; height: 42px; font-size: 10px; display: inline-flex; margin: 1px; cursor: pointer; }
+</style>
+</head>
+<body>
+
+<h1>办二 / 摔小二</h1>
+
+<div class="lobby" id="lobby">
+  <input id="roomInput" placeholder="房间号" maxlength="4">
+  <br>
+  <button onclick="joinRoom()">加入房间</button>
+  <button onclick="createRoom()">创建房间</button>
+</div>
+
+<div class="waiting" id="waiting" style="display:none">
+  等待玩家加入... <span id="waitCount">1</span>/4<br>
+  <span style="font-size:14px;color:#aaa;">房间号：<span id="waitRoomId"></span></span>
+</div>
+
+<div class="game" id="game">
+  <div class="top-bar">
+    <span>玩家<span id="myIdxLabel">?</span></span>
+    <span class="trump">主牌：<span id="trumpLabel">-</span></span>
+    <span class="vice">副家：<span id="viceLabel">0</span></span>
+  </div>
+  <div class="msg" id="msg"></div>
+  <div class="trick" id="trick"></div>
+    <div class="reveal" id="reveal" style="display:none"></div>
+  <div class="supply" id="supply" style="display:none"></div>
+  <div class="reveal" id="bottomView" style="display:none"></div>
+  <div class="others" id="others"></div>
+  <div class="hand" id="hand"></div>
+  <div class="actions" id="actions"></div>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+const SUIT_NAMES = { '♠': '黑桃', '♥': '红桃', '♣': '梅花', '♦': '方块' };
+const RANKS = ['2','3','4','5','6','7','8','9','10','J','Q','K','A'];
+let socket, myIndex = -1, roomId = '', state = null;
+let selCards = new Set();
+let supplySel = new Set();
+let returnDealerSel = new Set();
+let returnPartnerSel = new Set();
+
+function isTrump(c, ts) {
+  if (!ts) return false;
+  if (c.suit === 'joker') return true;
+  if (c.rank === '2') return true;
+  return c.suit === ts;
+}
+function cardText(c) { return c.suit === 'joker' ? c.rank : c.suit + c.rank; }
+function getScore(c) { if (c.rank === '5') return 5; if (c.rank === '10') return 10; if (c.rank === 'K') return 10; return 0; }
+
+function send(type, params) {
+  if (!socket || !roomId) return;
+  socket.emit('action', { roomId, type, ...(params || {}) });
+}
+
+function createRoom() {
+  if (!socket) initSocket();
+  socket.emit('createRoom');
+}
+function joinRoom() {
+  const id = document.getElementById('roomInput').value.trim().toUpperCase();
+  if (!id) return;
+  if (!socket) initSocket();
+  socket.emit('joinRoom', { roomId: id });
+}
+
+function initSocket() {
+  socket = io();
+  socket.on('roomCreated', ({ roomId: id, playerIndex }) => {
+    roomId = id; myIndex = playerIndex;
+    document.getElementById('waitRoomId').textContent = id;
+    document.getElementById('lobby').style.display = 'none';
+    document.getElementById('waiting').style.display = 'block';
+  });
+  socket.on('joined', ({ roomId: id, playerIndex }) => {
+    roomId = id; myIndex = playerIndex;
+    document.getElementById('waitRoomId').textContent = id;
+    document.getElementById('lobby').style.display = 'none';
+    document.getElementById('waiting').style.display = 'block';
+  });
+  socket.on('roomUpdate', ({ count }) => {
+    document.getElementById('waitCount').textContent = count;
+    if (count === 4) {
+      document.getElementById('waiting').style.display = 'none';
+      document.getElementById('game').style.display = 'block';
+    }
+  });
+    let lastPhase = '';
+  let lastCurrentPlayer = -1;
+  let lastTrickLen = 0;
+  socket.on('stateUpdate', ({ state: s, yourIndex }) => {
+    // 阶段变化 / 轮到的人变化 / 出牌区长度变化时，清空所有选择，避免残留
+    if (s.phase !== lastPhase ||
+        s.currentPlayer !== lastCurrentPlayer ||
+        (s.currentTrick ? s.currentTrick.length : 0) !== lastTrickLen) {
+      selCards.clear();
+      supplySel.clear();
+      returnDealerSel.clear();
+      returnPartnerSel.clear();
+    }
+    lastPhase = s.phase;
+    lastCurrentPlayer = s.currentPlayer;
+    lastTrickLen = s.currentTrick ? s.currentTrick.length : 0;
+
+    state = s; myIndex = yourIndex;
+    document.getElementById('waiting').style.display = 'none';
+    document.getElementById('game').style.display = 'block';
+    render();
+  });
+  socket.on('msg', (m) => {
+    const el = document.getElementById('msg');
+    el.textContent = m;
+    setTimeout(() => { if (el.textContent === m) el.textContent = ''; }, 5000);
+  });
+  socket.on('err', (m) => alert(m));
+}
+
+function render() {
+  if (!state) return;
+  const s = state;
+  document.getElementById('myIdxLabel').textContent = myIndex + 1;
+  document.getElementById('trumpLabel').textContent = s.trumpSuit ? SUIT_NAMES[s.trumpSuit] : '-';
+  document.getElementById('viceLabel').textContent = s.viceScore || 0;
+
+  // 出牌区
+  let th = '';
+  if (s.currentTrick && s.currentTrick.length > 0) {
+    for (const play of s.currentTrick) {
+      const cards = play.cards || [play.card];
+      th += `<div class="play"><div class="who">玩家${play.player + 1}${play.sweep ? '(甩)' : ''}</div>`;
+      for (const c of cards) {
+        const red = c.suit === '♥' || c.suit === '♦';
+        th += `<div class="card ${red ? 'red' : ''}" style="width:34px;height:50px;font-size:12px;display:inline-flex;margin:1px;">${cardText(c)}</div>`;
+      }
+      th += `</div>`;
+    }
+  } else {
+    th = '<span style="color:#aaa;font-size:12px;">等待出牌...</span>';
+  }
+  document.getElementById('trick').innerHTML = th;
+
+  // 底牌展示
+  const revealEl = document.getElementById('reveal');
+   if (s.phase === 'flipReveal' || s.phase === 'bottomReveal' || s.phase === 'flipNoTrump') {
+    revealEl.style.display = 'block';
+    let rh = '<div style="color:#aaa;font-size:10px;">底牌</div>';
+    for (const c of s.revealedBottom || []) {
+      const red = c.suit === '♥' || c.suit === '♦';
+      rh += `<div class="card ${red ? 'red' : ''}" style="width:28px;height:42px;font-size:10px;display:inline-flex;margin:1px;">${cardText(c)}</div>`;
+    }
+    for (let i = s.revealIndex || 0; i < (s.bottom || []).length; i++) {
+      rh += `<div class="card back" style="width:28px;height:42px;display:inline-flex;margin:1px;">?</div>`;
+    }
+    revealEl.innerHTML = rh;
+  } else {
+    revealEl.style.display = 'none';
+  }
+
+  // 庄家可以看到自己扣的底牌（仅庄家视角显示）
+  const bottomViewEl = document.getElementById('bottomView');
+  const canSeeBottom = myIndex === s.dealer &&
+    (s.phase === 'play' || s.phase === 'supplySelect' || s.phase === 'supplyDistribute' || s.phase === 'supplyReturn') &&
+    s.bottom && s.bottom.length === 6;
+  if (canSeeBottom) {
+    bottomViewEl.style.display = 'block';
+    let bh = '<div style="color:#aaa;font-size:10px;">你扣的底牌（仅你可见）</div>';
+    for (const c of s.bottom) {
+      const red = c.suit === '♥' || c.suit === '♦';
+      bh += `<div class="card ${red ? 'red' : ''}" style="width:28px;height:42px;font-size:10px;display:inline-flex;margin:1px;">${cardText(c)}</div>`;
+    }
+    bottomViewEl.innerHTML = bh;
+  } else {
+    bottomViewEl.style.display = 'none';
+  }
+
+  // 上供展示
+    const supplyEl = document.getElementById('supply');
+  if (s.phase === 'supplyDistribute') {
+    supplyEl.style.display = 'block';
+    const isDist = (myIndex + 2) % 4 === s.supplyFrom;
+    let sh = '<div style="color:#aaa;font-size:10px;">上供的牌</div>';
+    for (let i = 0; i < s.supplyCards.length; i++) {
+      const c = s.supplyCards[i];
+      if (isDist) {
+        const red = c.suit === '♥' || c.suit === '♦';
+        const t = s.supplyAssign[i];
+        sh += `<div style="display:inline-block;margin:4px;text-align:center;vertical-align:top;">`;
+        sh += `<div class="card ${red ? 'red' : ''}" style="width:28px;height:42px;font-size:10px;display:inline-flex;margin:0;">${cardText(c)}</div>`;
+        sh += `<div style="margin-top:2px;white-space:nowrap;">`;
+        sh += `<button style="font-size:10px;padding:3px 6px;margin:1px;background:${t === 0 ? '#27ae60' : '#555'};border:none;border-radius:3px;color:#fff;cursor:pointer;" onclick="send('assign',{index:${i},target:0})">给庄家</button>`;
+        sh += `<button style="font-size:10px;padding:3px 6px;margin:1px;background:${t === 1 ? '#e74c3c' : '#555'};border:none;border-radius:3px;color:#fff;cursor:pointer;" onclick="send('assign',{index:${i},target:1})">给对家</button>`;
+        sh += `</div></div>`;
+      } else {
+        sh += `<div class="card back" style="width:28px;height:42px;display:inline-flex;margin:1px;">?</div>`;
+      }
+    }
+    if (myIndex === s.dealer || myIndex === (s.dealer + 2) % 4 || isDist) {
+      let td = 0, tp = 0;
+      for (const a of s.supplyAssign) { if (a === 0) td++; else tp++; }
+      sh += `<div style="font-size:10px;color:#f1c40f;margin-top:2px;">给庄家 ${td} 张，给庄家对家 ${tp} 张</div>`;
+    }
+    supplyEl.innerHTML = sh;
+  } else {
+    supplyEl.style.display = 'none';
+  }
+
+  // 其他玩家手牌数
+  let oh = '';
+  for (let p = 0; p < 4; p++) {
+    if (p === myIndex) continue;
+    const cur = (s.phase === 'play' && s.currentPlayer === p) || (s.phase === 'dealing' && s.dealCurrent === p);
+    oh += `<span class="${cur ? 'cur' : ''}" style="margin-right:10px;">玩家${p + 1}${p === s.dealer ? '(庄)' : ''}: ${(s.players[p] || []).length}张</span>`;
+  }
+  document.getElementById('others').innerHTML = oh;
+
+  // 我的手牌
+  const handEl = document.getElementById('hand');
+  let hh = '';
+  const myHand = s.players[myIndex] || [];
+  for (let i = 0; i < myHand.length; i++) {
+    const c = myHand[i];
+    const red = c.suit === '♥' || c.suit === '♦';
+    let sel = false, clickable = false, onclick = '';
+    if (s.phase === 'bottom' && myIndex === s.dealer) {
+      sel = selCards.has(i); clickable = true; onclick = `toggleSel(${i})`;
+    } else if (s.phase === 'supplySelect' && myIndex === s.supplyFrom) {
+      sel = supplySel.has(i); clickable = true; onclick = `toggleSupply(${i})`;
+    } else if (s.phase === 'supplyReturn' && myIndex === s.dealer) {
+      sel = returnDealerSel.has(i); clickable = true; onclick = `toggleReturnDealer(${i})`;
+    } else if (s.phase === 'supplyReturn' && myIndex === (s.dealer + 2) % 4) {
+      sel = returnPartnerSel.has(i); clickable = true; onclick = `toggleReturnPartner(${i})`;
+    } else if (s.phase === 'play' && myIndex === s.currentPlayer) {
+      sel = selCards.has(i); clickable = true; onclick = `toggleSel(${i})`;
+    }
+    const ts = isTrump(c, s.trumpSuit);
+    const sc = getScore(c);
+    hh += `<div class="card ${red ? 'red' : ''} ${sel ? 'sel' : ''} ${ts ? 'trump' : ''}" ${clickable ? `onclick="${onclick}"` : ''}>${cardText(c)}${sc ? `<span class="sm">${sc}</span>` : ''}</div>`;
+  }
+  handEl.innerHTML = hh;
+
+  // 操作按钮
+  const actEl = document.getElementById('actions');
+  let ah = '';
+  if (s.phase === 'dealing') {
+    if (myIndex === s.dealCurrent && s.dealtCounts[myIndex] < 12) {
+      ah += `<button class="btn-draw" onclick="send('drawCard')">摸牌 (${s.dealtCounts[myIndex]}/12)</button>`;
+    }
+    if (s.trumpSuit === null && (s.players[myIndex] || []).some(c => c.rank === '2')) {
+      ah += `<button class="btn-ban2" onclick="send('declareTwo')">办2</button>`;
+    }
+  } else if (s.phase === 'flipBottom') {
+    if (myIndex % 2 !== s.dealer % 2) {
+      ah += `<button class="btn-sweep" onclick="send('flipBottom')">翻底定主</button>`;
+    }
+
+   } else if (s.phase === 'flipReveal' || s.phase === 'bottomReveal') {
+    ah += `<button class="btn-ok" onclick="send('revealNext')" ${(s.revealIndex || 0) >= (s.bottom || []).length ? 'disabled' : ''}>翻下一张 (${s.revealIndex || 0}/${(s.bottom || []).length})</button>`;
+  } else if (s.phase === 'flipNoTrump') {
+    if (myIndex === s.flipBy) {
+      ah += `<button class="btn-ok" onclick="send('nextRound')">重开一局</button>`;
+    }
+  } else if (s.phase === 'bottom') {
+
+    if (myIndex === s.dealer) {
+      ah += `<button class="btn-ok" onclick="send('confirmBottom',{indices:[...selCards]})" ${selCards.size === 6 ? '' : 'disabled'}>确认扣底 (${selCards.size}/6)</button>`;
+    }
+  } else if (s.phase === 'supplySelect') {
+    if (myIndex === s.supplyFrom) {
+      ah += `<button class="btn-ok" onclick="send('confirmSupplySelect',{indices:[...supplySel]})" ${supplySel.size === s.supplyCount ? '' : 'disabled'}>确认选牌 (${supplySel.size}/${s.supplyCount})</button>`;
+    }
+  } else if (s.phase === 'supplyDistribute') {
+    if (myIndex === (s.supplyFrom + 2) % 4) {
+      ah += `<button class="btn-ok" onclick="send('confirmSupplyDistribute')">确认分配</button>`;
+    }
+   } else if (s.phase === 'supplyReturn') {
+    if (myIndex === s.dealer && s.returnDealerCount > 0) {
+      if (s.returnDealerSubmit !== null) {
+        ah += `<span style="color:#aaa;">庄家已提交，等待对家...</span>`;
+      } else {
+        const okD = returnDealerSel.size === s.returnDealerCount;
+        ah += `<button class="btn-ok" onclick="send('submitReturn',{role:'dealer',indices:[...returnDealerSel]})" ${okD ? '' : 'disabled'}>确认还牌（庄家 ${returnDealerSel.size}/${s.returnDealerCount}）</button>`;
+      }
+    } else if (myIndex === (s.dealer + 2) % 4 && s.returnPartnerCount > 0) {
+      if (s.returnPartnerSubmit !== null) {
+        ah += `<span style="color:#aaa;">对家已提交，等待庄家...</span>`;
+      } else {
+        const okP = returnPartnerSel.size === s.returnPartnerCount;
+        ah += `<button class="btn-ok" onclick="send('submitReturn',{role:'partner',indices:[...returnPartnerSel]})" ${okP ? '' : 'disabled'}>确认还牌（对家 ${returnPartnerSel.size}/${s.returnPartnerCount}）</button>`;
+      }
+    }
+  } else if (s.phase === 'play') {
+
+    if (myIndex === s.currentPlayer) {
+      if (s.sweepInfo && s.currentTrick.length > 0) {
+        const need = s.sweepInfo.count;
+        ah += `<button class="btn-ok" onclick="send('playSweepFollow',{indices:[...selCards]})" ${selCards.size === need ? '' : 'disabled'}>跟牌 (${selCards.size}/${need})</button>`;
+      } else {
+        ah += `<button onclick="send('playCard',{cardIndex:[...selCards][0]})" ${selCards.size === 1 ? '' : 'disabled'}>出牌</button>`;
+        if (selCards.size >= 2 && s.currentTrick.length === 0) {
+          ah += `<button class="btn-sweep" onclick="send('trySweep',{indices:[...selCards]})">甩牌 (${selCards.size}张)</button>`;
+        }
+      }
+    }
+  } else if (s.phase === 'ended') {
+    ah += `<button onclick="send('nextRound')">再来一局</button>`;
+  }
+  actEl.innerHTML = ah;
+}
+
+function toggleSel(i) {
+  if (selCards.has(i)) selCards.delete(i); else selCards.add(i);
+  render();
+}
+function toggleSupply(i) {
+  const c = state.players[myIndex][i];
+  if (!isTrump(c, state.trumpSuit)) { alert('上供必须是主牌'); return; }
+  if (c.rank === '10' || c.rank === 'K') { alert('上供不能是 10、K'); return; }
+  if (supplySel.has(i)) supplySel.delete(i);
+  else if (supplySel.size < state.supplyCount) supplySel.add(i);
+  render();
+}
+
+function toggleReturnDealer(i) {
+  const c = state.players[myIndex][i];
+  if (isTrump(c, state.trumpSuit)) { alert('不可以还主牌'); return; }
+  if (getScore(c) > 0) { alert('不可以还 5、10、K'); return; }
+  if (returnDealerSel.has(i)) returnDealerSel.delete(i);
+  else if (returnDealerSel.size < state.returnDealerCount) returnDealerSel.add(i);
+  render();
+}
+function toggleReturnPartner(i) {
+  const c = state.players[myIndex][i];
+  if (isTrump(c, state.trumpSuit)) { alert('不可以还主牌'); return; }
+  if (getScore(c) > 0) { alert('不可以还 5、10、K'); return; }
+  for (const idx of returnPartnerSel) {
+    const other = state.players[myIndex][idx];
+    if (other.suit === c.suit) { alert('庄家对家还牌必须不同花色'); return; }
+  }
+  if (returnPartnerSel.has(i)) returnPartnerSel.delete(i);
+  else if (returnPartnerSel.size < state.returnPartnerCount) returnPartnerSel.add(i);
+  render();
+}
+
+// 页面可见时重连（移动端后台切回）
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && socket && !socket.connected) socket.connect();
+});
+
+initSocket();
+</script>
+</body>
+</html>
