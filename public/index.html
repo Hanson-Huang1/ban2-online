@@ -20,11 +20,11 @@
   .trick { background: rgba(0,0,0,0.5); border-radius: 8px; padding: 8px; margin: 6px 0; min-height: 70px; }
   .trick .play { display: inline-block; margin: 2px 6px 2px 0; text-align: center; vertical-align: top; }
   .trick .play .who { font-size: 10px; color: #f1c40f; }
-  .trick .play .card { width: 34px; height: 50px; font-size: 12px; margin: 1px; }
+.trick .play .card { width: 42px; height: 58px; font-size: 17px; margin: 2px; }
   .others { font-size: 12px; color: #aaa; margin: 4px 0; }
   .others .cur { color: #f1c40f; font-weight: bold; }
   .hand { display: flex; flex-wrap: wrap; gap: 3px; padding: 6px; background: rgba(0,0,0,0.2); border-radius: 8px; min-height: 70px; }
-  .card { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 50px; background: #fff; color: #000; border-radius: 5px; font-weight: bold; font-size: 12px; border: 2px solid #333; cursor: pointer; user-select: none; position: relative; transition: transform 0.1s; }
+    .card { display: inline-flex; align-items: center; justify-content: center; width: 42px; height: 58px; background: #fff; color: #000; border-radius: 5px; font-weight: bold; font-size: 17px; border: 2px solid #333; cursor: pointer; user-select: none; position: relative; transition: transform 0.1s; }
   .card.red { color: red; }
   .card.trump { box-shadow: 0 0 6px gold; }
   .card.sel { border: 3px solid #f1c40f; transform: translateY(-6px); }
@@ -38,9 +38,9 @@
   .btn-draw { background: #3498db !important; }
   .btn-ban2 { background: #e74c3c !important; }
   .reveal { background: rgba(52,152,219,0.2); border: 1px solid #3498db; border-radius: 6px; padding: 6px; margin: 6px 0; text-align: center; font-size: 12px; }
-  .reveal .card { width: 28px; height: 42px; font-size: 10px; margin: 1px; }
+   .reveal .card { width: 34px; height: 48px; font-size: 14px; margin: 2px; }
   .supply { background: rgba(255,215,0,0.15); border: 1px solid #f1c40f; border-radius: 6px; padding: 6px; margin: 6px 0; text-align: center; font-size: 12px; }
-  .supply .card { width: 28px; height: 42px; font-size: 10px; display: inline-flex; margin: 1px; cursor: pointer; }
+    .supply .card { width: 34px; height: 48px; font-size: 14px; display: inline-flex; margin: 2px; cursor: pointer; }
 </style>
 </head>
 <body>
@@ -112,18 +112,43 @@ function joinRoom() {
 
 function initSocket() {
   socket = io();
-  socket.on('roomCreated', ({ roomId: id, playerIndex }) => {
+
+  // 连接成功后，如果 sessionStorage 里有房间信息，自动重连
+  socket.on('connect', () => {
+    const savedRoomId = sessionStorage.getItem('ban2_roomId');
+    const savedToken = sessionStorage.getItem('ban2_token');
+    if (savedRoomId && savedToken) {
+      socket.emit('reconnect', { roomId: savedRoomId, token: savedToken });
+    }
+  });
+
+  socket.on('roomCreated', ({ roomId: id, playerIndex, token }) => {
     roomId = id; myIndex = playerIndex;
+    sessionStorage.setItem('ban2_roomId', id);
+    sessionStorage.setItem('ban2_token', token);
     document.getElementById('waitRoomId').textContent = id;
     document.getElementById('lobby').style.display = 'none';
     document.getElementById('waiting').style.display = 'block';
   });
-  socket.on('joined', ({ roomId: id, playerIndex }) => {
+
+  socket.on('joined', ({ roomId: id, playerIndex, token }) => {
     roomId = id; myIndex = playerIndex;
+    sessionStorage.setItem('ban2_roomId', id);
+    sessionStorage.setItem('ban2_token', token);
     document.getElementById('waitRoomId').textContent = id;
     document.getElementById('lobby').style.display = 'none';
     document.getElementById('waiting').style.display = 'block';
   });
+
+  socket.on('reconnected', ({ roomId: id, playerIndex, token }) => {
+    roomId = id; myIndex = playerIndex;
+    sessionStorage.setItem('ban2_roomId', id);
+    sessionStorage.setItem('ban2_token', token);
+    document.getElementById('lobby').style.display = 'none';
+    document.getElementById('waiting').style.display = 'none';
+    document.getElementById('game').style.display = 'block';
+  });
+
   socket.on('roomUpdate', ({ count }) => {
     document.getElementById('waitCount').textContent = count;
     if (count === 4) {
@@ -131,11 +156,11 @@ function initSocket() {
       document.getElementById('game').style.display = 'block';
     }
   });
-    let lastPhase = '';
+
+  let lastPhase = '';
   let lastCurrentPlayer = -1;
   let lastTrickLen = 0;
   socket.on('stateUpdate', ({ state: s, yourIndex }) => {
-    // 阶段变化 / 轮到的人变化 / 出牌区长度变化时，清空所有选择，避免残留
     if (s.phase !== lastPhase ||
         s.currentPlayer !== lastCurrentPlayer ||
         (s.currentTrick ? s.currentTrick.length : 0) !== lastTrickLen) {
@@ -153,11 +178,13 @@ function initSocket() {
     document.getElementById('game').style.display = 'block';
     render();
   });
+
   socket.on('msg', (m) => {
     const el = document.getElementById('msg');
     el.textContent = m;
     setTimeout(() => { if (el.textContent === m) el.textContent = ''; }, 5000);
   });
+
   socket.on('err', (m) => alert(m));
 }
 
@@ -174,9 +201,9 @@ function render() {
     for (const play of s.currentTrick) {
       const cards = play.cards || [play.card];
       th += `<div class="play"><div class="who">玩家${play.player + 1}${play.sweep ? '(甩)' : ''}</div>`;
-      for (const c of cards) {
+    for (const c of cards) {
         const red = c.suit === '♥' || c.suit === '♦';
-        th += `<div class="card ${red ? 'red' : ''}" style="width:34px;height:50px;font-size:12px;display:inline-flex;margin:1px;">${cardText(c)}</div>`;
+        th += `<div class="card ${red ? 'red' : ''}" style="width:42px;height:58px;font-size:17px;display:inline-flex;margin:2px;">${cardText(c)}</div>`;
       }
       th += `</div>`;
     }
@@ -190,12 +217,12 @@ function render() {
    if (s.phase === 'flipReveal' || s.phase === 'bottomReveal' || s.phase === 'flipNoTrump') {
     revealEl.style.display = 'block';
     let rh = '<div style="color:#aaa;font-size:10px;">底牌</div>';
-    for (const c of s.revealedBottom || []) {
+        for (const c of s.revealedBottom || []) {
       const red = c.suit === '♥' || c.suit === '♦';
-      rh += `<div class="card ${red ? 'red' : ''}" style="width:28px;height:42px;font-size:10px;display:inline-flex;margin:1px;">${cardText(c)}</div>`;
+      rh += `<div class="card ${red ? 'red' : ''}" style="width:34px;height:48px;font-size:14px;display:inline-flex;margin:2px;">${cardText(c)}</div>`;
     }
     for (let i = s.revealIndex || 0; i < (s.bottom || []).length; i++) {
-      rh += `<div class="card back" style="width:28px;height:42px;display:inline-flex;margin:1px;">?</div>`;
+      rh += `<div class="card back" style="width:34px;height:48px;display:inline-flex;margin:2px;">?</div>`;
     }
     revealEl.innerHTML = rh;
   } else {
@@ -210,9 +237,9 @@ function render() {
   if (canSeeBottom) {
     bottomViewEl.style.display = 'block';
     let bh = '<div style="color:#aaa;font-size:10px;">你扣的底牌（仅你可见）</div>';
-    for (const c of s.bottom) {
+        for (const c of s.bottom) {
       const red = c.suit === '♥' || c.suit === '♦';
-      bh += `<div class="card ${red ? 'red' : ''}" style="width:28px;height:42px;font-size:10px;display:inline-flex;margin:1px;">${cardText(c)}</div>`;
+      bh += `<div class="card ${red ? 'red' : ''}" style="width:34px;height:48px;font-size:14px;display:inline-flex;margin:2px;">${cardText(c)}</div>`;
     }
     bottomViewEl.innerHTML = bh;
   } else {
@@ -231,7 +258,7 @@ function render() {
         const red = c.suit === '♥' || c.suit === '♦';
         const t = s.supplyAssign[i];
         sh += `<div style="display:inline-block;margin:4px;text-align:center;vertical-align:top;">`;
-        sh += `<div class="card ${red ? 'red' : ''}" style="width:28px;height:42px;font-size:10px;display:inline-flex;margin:0;">${cardText(c)}</div>`;
+               sh += `<div class="card ${red ? 'red' : ''}" style="width:34px;height:48px;font-size:14px;display:inline-flex;margin:0;">${cardText(c)}</div>`;
         sh += `<div style="margin-top:2px;white-space:nowrap;">`;
         sh += `<button style="font-size:10px;padding:3px 6px;margin:1px;background:${t === 0 ? '#27ae60' : '#555'};border:none;border-radius:3px;color:#fff;cursor:pointer;" onclick="send('assign',{index:${i},target:0})">给庄家</button>`;
         sh += `<button style="font-size:10px;padding:3px 6px;margin:1px;background:${t === 1 ? '#e74c3c' : '#555'};border:none;border-radius:3px;color:#fff;cursor:pointer;" onclick="send('assign',{index:${i},target:1})">给对家</button>`;

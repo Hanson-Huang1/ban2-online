@@ -182,7 +182,20 @@ function declareTwo(room, p) {
   if (!chosen) return;
   s.trumpSuit = chosen.suit;
   if (s.dealer === -1) s.dealer = p;
+
+  // 办2后，直接把剩余牌一次性发完（每人补到 12 张）
+  while (s.dealtCounts.some(c => c < 12)) {
+    const cur = s.dealCurrent;
+    if (s.dealtCounts[cur] < 12) {
+      s.players[cur].push(s.deck.pop());
+      s.dealtCounts[cur]++;
+    }
+    s.dealCurrent = (s.dealCurrent + 1) % 4;
+  }
   for (let k = 0; k < 4; k++) sortHand(s.players[k], s.trumpSuit);
+
+  // 检查是否发完
+  if (s.dealtCounts.every(c => c >= 12)) finishDealing(room);
 }
 
 function finishDealing(room) {
@@ -593,26 +606,55 @@ function finishBottomReveal(room) {
 io.on('connection', (socket) => {
   socket.on('createRoom', () => {
     const id = Math.random().toString(36).substring(2, 6).toUpperCase();
+    const token = Math.random().toString(36).substring(2, 12);
     rooms[id] = { id, players: [], state: null, pendingBottomIndices: null };
-    rooms[id].players.push({ socketId: socket.id });
+    rooms[id].players.push({ socketId: socket.id, token });
     initRoom(rooms[id]);
     socket.join(id);
-    socket.emit('roomCreated', { roomId: id, playerIndex: 0 });
+    socket.emit('roomCreated', { roomId: id, playerIndex: 0, token });
   });
 
   socket.on('joinRoom', ({ roomId }) => {
     const room = rooms[roomId];
     if (!room) { socket.emit('err', '房间不存在'); return; }
-    if (room.players.length >= 4) { socket.emit('err', '房间已满'); return; }
-    const idx = room.players.length;
-    room.players.push({ socketId: socket.id });
+    let idx = room.players.findIndex(p => !p.socketId);
+    if (idx === -1 && room.players.length < 4) idx = room.players.length;
+    if (idx === -1) { socket.emit('err', '房间已满'); return; }
+    const token = Math.random().toString(36).substring(2, 12);
+    if (idx >= room.players.length) {
+      room.players.push({ socketId: socket.id, token });
+    } else {
+      room.players[idx] = { socketId: socket.id, token };
+    }
     socket.join(roomId);
-    socket.emit('joined', { roomId, playerIndex: idx });
-    io.to(roomId).emit('roomUpdate', { count: room.players.length });
-    if (room.players.length === 4) {
+    socket.emit('joined', { roomId, playerIndex: idx, token });
+    io.to(roomId).emit('roomUpdate', { count: room.players.filter(p => p.socketId).length });
+    if (room.players.filter(p => p.socketId).length === 4) {
       initRoom(room);
       broadcastState(roomId);
     }
+  });
+
+  socket.on('reconnect', ({ roomId, token }) => {
+    const room = rooms[roomId];
+    if (!room) { socket.emit('err', '房间不存在'); return; }
+    const idx = room.players.findIndex(p => p.token === token);
+    if (idx === -1) { socket.emit('err', '重连失败'); return; }
+    room.players[idx].socketId = socket.id;
+    socket.join(roomId);
+    socket.emit('reconnected', { roomId, playerIndex: idx, token });
+    io.to(roomId).emit('roomUpdate', { count: room.players.filter(p => p.socketId).length });
+    if (room.state) {
+      socket.emit('stateUpdate', { state: room.state, yourIndex: idx, roomId });
+    }
+  });
+
+  socket.on('requestState', ({ roomId, token }) => {
+    const room = rooms[roomId];
+    if (!room || !room.state) return;
+    const idx = room.players.findIndex(p => p.token === token);
+    if (idx === -1) return;
+    socket.emit('stateUpdate', { state: room.state, yourIndex: idx, roomId });
   });
 
   socket.on('action', ({ roomId, type, ...params }) => {
@@ -620,57 +662,74 @@ io.on('connection', (socket) => {
     if (!room || !room.state) return;
     const p = room.players.findIndex(x => x.socketId === socket.id);
     if (p < 0) return;
+    const s = room.state;
     switch (type) {
       case 'assign':
-        if (room.state.phase === 'supplyDistribute') {
+        if (s.phase === 'supplyDistribute' && p === (s.supplyFrom + 2) % 4) {
           const idx = params.index;
           const tgt = params.target;
-          if (idx >= 0 && idx < room.state.supplyAssign.length) {
-            room.state.supplyAssign[idx] = tgt;
-          }
+          if (idx >= 0 && idx < s.supplyAssign.length) s.supplyAssign[idx] = tgt;
         }
         break;
-      case 'drawCard': drawCard(room); break;
+      case 'drawCard':
+        if (s.phase === 'dealing' && p === s.dealCurrent) drawCard(room);
+        break;
       case 'nextRound': {
-        const s = room.state;
         if (s.phase !== 'ended' && s.phase !== 'flipNoTrump') break;
         s.nextRoundReady[p] = true;
         const readyCount = s.nextRoundReady.filter(x => x).length;
         io.to(room.id).emit('msg', `玩家${p + 1} 已准备（${readyCount}/4），等待其他玩家...`);
-        if (s.nextRoundReady.every(x => x)) {
-          initRoom(room);
-        }
+        if (s.nextRoundReady.every(x => x)) initRoom(room);
         break;
       }
       case 'submitReturn': {
-        const s = room.state;
         if (s.phase !== 'supplyReturn') break;
-        if (params.role === 'dealer' && s.returnDealerCount > 0) {
+        if (params.role === 'dealer' && p === s.dealer && s.returnDealerCount > 0) {
           s.returnDealerSubmit = params.indices;
-        } else if (params.role === 'partner' && s.returnPartnerCount > 0) {
+        } else if (params.role === 'partner' && p === (s.dealer + 2) % 4 && s.returnPartnerCount > 0) {
           s.returnPartnerSubmit = params.indices;
-        }
+        } else break;
         const dealerDone = s.returnDealerCount === 0 || s.returnDealerSubmit !== null;
         const partnerDone = s.returnPartnerCount === 0 || s.returnPartnerSubmit !== null;
-        if (dealerDone && partnerDone) {
-          confirmReturn(room, s.returnDealerSubmit || [], s.returnPartnerSubmit || []);
-        }
+        if (dealerDone && partnerDone) confirmReturn(room, s.returnDealerSubmit || [], s.returnPartnerSubmit || []);
         break;
       }
-      case 'declareTwo': declareTwo(room, p); break;
-      case 'flipBottom': flipBottom(room, p); break;
-      case 'revealNext': revealNext(room); break;
-      case 'confirmBottom':
-        room.pendingBottomIndices = params.indices;
-        confirmBottom(room);
+      case 'declareTwo':
+        if (s.phase === 'dealing' && s.trumpSuit === null) declareTwo(room, p);
         break;
-      case 'confirmSupplySelect': confirmSupplySelect(room, params.indices); break;
-      case 'toggleAssign': toggleAssign(room, params.index); break;
-      case 'confirmSupplyDistribute': confirmSupplyDistribute(room); break;
-      case 'confirmReturn': confirmReturn(room, params.dealerIndices, params.partnerIndices); break;
-      case 'playCard': playCard(room, params.cardIndex); break;
-      case 'trySweep': trySweep(room, params.indices); break;
-      case 'playSweepFollow': playSweepFollow(room, params.indices); break;
+      case 'flipBottom':
+        if (s.phase === 'flipBottom') flipBottom(room, p);
+        break;
+      case 'revealNext':
+        if ((s.phase === 'flipReveal' && p === s.flipBy) || s.phase === 'bottomReveal') revealNext(room);
+        break;
+      case 'confirmBottom':
+        if (s.phase === 'bottom' && p === s.dealer) {
+          room.pendingBottomIndices = params.indices;
+          confirmBottom(room);
+        }
+        break;
+      case 'confirmSupplySelect':
+        if (s.phase === 'supplySelect' && p === s.supplyFrom) confirmSupplySelect(room, params.indices);
+        break;
+      case 'toggleAssign':
+        if (s.phase === 'supplyDistribute' && p === (s.supplyFrom + 2) % 4) toggleAssign(room, params.index);
+        break;
+      case 'confirmSupplyDistribute':
+        if (s.phase === 'supplyDistribute' && p === (s.supplyFrom + 2) % 4) confirmSupplyDistribute(room);
+        break;
+      case 'confirmReturn':
+        if (s.phase === 'supplyReturn') confirmReturn(room, params.dealerIndices, params.partnerIndices);
+        break;
+      case 'playCard':
+        if (s.phase === 'play' && p === s.currentPlayer) playCard(room, params.cardIndex);
+        break;
+      case 'trySweep':
+        if (s.phase === 'play' && p === s.currentPlayer) trySweep(room, params.indices);
+        break;
+      case 'playSweepFollow':
+        if (s.phase === 'play' && p === s.currentPlayer) playSweepFollow(room, params.indices);
+        break;
     }
     broadcastState(roomId);
   });
@@ -678,11 +737,10 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => {
     for (const id in rooms) {
       const room = rooms[id];
-      const idx = room.players.findIndex(x => x.socketId === socket.id);
-      if (idx >= 0) {
-        room.players.splice(idx, 1);
-        if (room.players.length === 0) delete rooms[id];
-        else io.to(id).emit('roomUpdate', { count: room.players.length });
+      const player = room.players.find(x => x.socketId === socket.id);
+      if (player) {
+        player.socketId = null;
+        if (room.players.every(p => !p.socketId)) delete rooms[id];
         break;
       }
     }
