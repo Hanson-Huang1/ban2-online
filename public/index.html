@@ -355,6 +355,8 @@ function render() {
       sel = returnDealerSel.has(i); clickable = true; onclick = `toggleReturnDealer(${i})`;
     } else if (s.phase === 'supplyReturn' && myIndex === (s.dealer + 2) % 4) {
       sel = returnPartnerSel.has(i); clickable = true; onclick = `toggleReturnPartner(${i})`;
+       } else if (s.phase === 'dealing' && s.trumpSuit === null && c.rank === '2') {
+      sel = selCards.has(i); clickable = true; onclick = `toggleSel(${i})`;
     } else if (s.phase === 'play' && myIndex === s.currentPlayer) {
       sel = selCards.has(i); clickable = true; onclick = `toggleSel(${i})`;
     }
@@ -381,8 +383,14 @@ function render() {
     if (myIndex === s.dealCurrent && s.dealtCounts[myIndex] < 12) {
       ah += `<button class="btn-draw" onclick="send('drawCard')">摸牌 (${s.dealtCounts[myIndex]}/12)</button>`;
     }
-    if (s.trumpSuit === null && (s.players[myIndex] || []).some(c => c.rank === '2')) {
-      ah += `<button class="btn-ban2" onclick="send('declareTwo')">办2</button>`;
+      if (s.trumpSuit === null && (s.players[myIndex] || []).some(c => c.rank === '2')) {
+      const selArr = [...selCards];
+      let selSuit = '';
+      if (selArr.length === 1) {
+        const c = s.players[myIndex][selArr[0]];
+        if (c && c.rank === '2') selSuit = c.suit;
+      }
+      ah += `<button class="btn-ban2" onclick="send('declareTwo',{cardSuit:'${selSuit}'})">办2</button>`;
     }
   } else if (s.phase === 'flipBottom') {
     if (myIndex % 2 !== s.dealer % 2) {

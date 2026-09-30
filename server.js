@@ -182,15 +182,38 @@ function drawCard(room) {
   while (s.dealtCounts[s.dealCurrent] >= 12 && g < 4) { s.dealCurrent = (s.dealCurrent + 1) % 4; g++; }
 }
 
-function declareTwo(room, p) {
+function declareTwo(room, p, cardSuit) {
   const s = room.state;
   if (s.phase !== 'dealing' || s.trumpSuit !== null) return;
-  let chosen = null;
-  for (const suit of SUITS) {
-    const t = s.players[p].find(c => c.rank === '2' && c.suit === suit);
-    if (t) { chosen = t; break; }
+
+  // 找出玩家手里所有的 2
+  const twos = [];
+  for (let i = 0; i < s.players[p].length; i++) {
+    const c = s.players[p][i];
+    if (c.rank === '2') twos.push(c);
   }
-  if (!chosen) return;
+  if (twos.length === 0) {
+    io.to(room.id).emit('msg', '你手里没有 2');
+    return;
+  }
+
+  let chosen = null;
+  if (cardSuit && cardSuit.length > 0) {
+    // 前端指定了花色
+    chosen = twos.find(c => c.suit === cardSuit);
+    if (!chosen) {
+      io.to(room.id).emit('msg', '请选中一张 2');
+      return;
+    }
+  } else if (twos.length === 1) {
+    // 只有一张 2，自动选
+    chosen = twos[0];
+  } else {
+    // 多张 2，必须指定
+    io.to(room.id).emit('msg', '请选中要办的 2');
+    return;
+  }
+
   s.trumpSuit = chosen.suit;
   s.declareBy = p;
   if (s.dealer === -1) s.dealer = p;
@@ -776,7 +799,7 @@ io.on('connection', (socket) => {
         if (s.phase === 'dealing' && p === s.dealCurrent) drawCard(room);
         break;
       case 'nextRound': {
-        if (s.phase !== 'ended' && s.phase !== 'flipNoTrump') break;
+        if (s.phase !== 'ended' && s.phase !== 'flipNoTrump' && s.phase !== 'surrenderEnd') break;
         s.nextRoundReady[p] = true;
         const readyCount = s.nextRoundReady.filter(x => x).length;
         io.to(room.id).emit('msg', `${getNick(room, p)} 已准备（${readyCount}/4），等待其他玩家...`);
@@ -802,8 +825,8 @@ io.on('connection', (socket) => {
       case 'surrender':
         handleSurrender(room, p);
         break;
-      case 'declareTwo':
-        if (s.phase === 'dealing' && s.trumpSuit === null) declareTwo(room, p);
+          case 'declareTwo':
+        if (s.phase === 'dealing' && s.trumpSuit === null) declareTwo(room, p, params.cardSuit);
         break;
 
       case 'flipBottom':
