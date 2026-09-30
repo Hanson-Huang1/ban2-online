@@ -6,52 +6,202 @@
 <title>办二联机版</title>
 <style>
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-  body { font-family: 'Microsoft YaHei', Arial, sans-serif; background: #1a5c2a; color: #fff; margin: 0; padding: 8px; font-size: 14px; }
-  h1 { text-align: center; font-size: 18px; margin: 8px 0; }
-  .lobby { text-align: center; margin-top: 40px; }
-  .lobby input { padding: 10px; font-size: 18px; width: 140px; text-align: center; text-transform: uppercase; border-radius: 8px; border: none; margin-bottom: 14px; }
-  .lobby button { padding: 10px 24px; font-size: 16px; margin: 8px; border: none; border-radius: 8px; background: #f39c12; color: #fff; font-weight: bold; }
-  .waiting { text-align: center; margin-top: 60px; font-size: 18px; color: #f1c40f; }
+  body { font-family: 'Microsoft YaHei', Arial, sans-serif; background: #1a5c2a; color: #fff; margin: 0; padding: 6px; font-size: 14px; }
+
   .game { display: none; }
-  .top-bar { display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.4); padding: 8px 12px; border-radius: 8px; margin-bottom: 8px; }
+
+  .top-bar { display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.4); padding: 6px 10px; border-radius: 8px; margin-bottom: 6px; font-size: 13px; }
   .top-bar .trump { color: #f1c40f; font-weight: bold; }
   .top-bar .vice { color: #2ecc71; font-weight: bold; }
-  .msg { text-align: center; color: #f1c40f; font-weight: bold; min-height: 20px; margin: 6px 0; font-size: 13px; }
-  .trick { background: rgba(0,0,0,0.5); border-radius: 8px; padding: 8px; margin: 6px 0; min-height: 70px; }
-  .trick .play { display: inline-block; margin: 2px 6px 2px 0; text-align: center; vertical-align: top; }
-  .trick .play .who { font-size: 10px; color: #f1c40f; }
-.trick .play .card { width: 42px; height: 58px; font-size: 17px; margin: 2px; }
-  .others { font-size: 12px; color: #aaa; margin: 4px 0; }
-  .others .cur { color: #f1c40f; font-weight: bold; }
-  .hand { display: flex; flex-wrap: wrap; gap: 3px; padding: 6px; background: rgba(0,0,0,0.2); border-radius: 8px; min-height: 70px; }
-    .card { display: inline-flex; align-items: center; justify-content: center; width: 42px; height: 58px; background: #fff; color: #000; border-radius: 5px; font-weight: bold; font-size: 17px; border: 2px solid #333; cursor: pointer; user-select: none; position: relative; transition: transform 0.1s; }
+
+  .table-area {
+    display: grid;
+    grid-template-columns: minmax(0, auto) minmax(0, 1fr) minmax(0, auto);
+    grid-template-rows: minmax(0, auto) minmax(0, 1fr) minmax(0, auto);
+    gap: 6px;
+    padding: 8px;
+    background: rgba(0,0,0,0.25);
+    border-radius: 12px;
+    margin-bottom: 6px;
+    min-height: 400px;
+  }
+
+  .seat {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0,0,0,0.3);
+    border-radius: 10px;
+    padding: 6px 8px;
+    transition: box-shadow 0.2s;
+  }
+  .seat.active {
+    box-shadow: 0 0 0 2px #f1c40f, 0 0 12px rgba(241,196,15,0.6);
+    background: rgba(241,196,15,0.12);
+  }
+
+  .seat-top { grid-row: 1; grid-column: 2; flex-direction: column; gap: 4px; }
+  .seat-bottom { grid-row: 3; grid-column: 2; flex-direction: column-reverse; gap: 4px; }
+  .seat-left { grid-row: 2; grid-column: 1; flex-direction: row; gap: 4px; }
+  .seat-right { grid-row: 2; grid-column: 3; flex-direction: row-reverse; gap: 4px; }
+
+ .seat-info {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1px;
+    font-size: 12px;
+    text-align: center;
+    line-height: 1.2;
+  }
+  .seat-left .seat-info,
+  .seat-right .seat-info {
+    flex-direction: column;
+    gap: 1px;
+    text-align: center;
+  }
+  .seat-name { font-size: 12px; font-weight: bold; color: #fff; max-width: 140px; text-align: center; }
+  .seat-status { font-size: 10px; color: #f1c40f; }
+  .seat-count { font-size: 10px; color: #aaa; }
+
+  .seat-avatar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: #f39c12;
+    color: #fff;
+    font-size: 13px;
+    font-weight: bold;
+    flex-shrink: 0;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+  }
+  .seat-avatar.dealer { background: #e74c3c; }
+
+  .seat-cards {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px;
+    justify-content: center;
+    align-items: center;
+    max-width: 100%;
+  }
+  .seat-left .seat-cards,
+  .seat-right .seat-cards {
+    flex-direction: column;
+    max-width: 60px;
+  }
+
+  .center-area {
+    grid-row: 2;
+    grid-column: 2;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 6px;
+    min-width: 0;
+    overflow: hidden;
+  }
+  .msg { text-align: center; color: #f1c40f; font-weight: bold; min-height: 18px; margin: 2px 0; font-size: 12px; }
+  .center-hint { font-size: 11px; color: #aaa; }
+
+  .mini-card {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 44px;
+    background: #fff;
+    color: #000;
+    border-radius: 4px;
+    font-weight: bold;
+    font-size: 13px;
+    border: 1.5px solid #333;
+    position: relative;
+    flex-shrink: 0;
+  }
+  .mini-card.red { color: red; }
+  .mini-card .sm { position: absolute; top: 0; right: 1px; font-size: 8px; color: #e67e22; }
+
+  .reveal { background: rgba(52,152,219,0.2); border: 1px solid #3498db; border-radius: 6px; padding: 4px 6px; margin: 4px 0; text-align: center; font-size: 11px; max-width: 100%; }
+  .reveal .card { display: inline-flex; width: 30px; height: 42px; font-size: 12px; margin: 1px; }
+  .supply { background: rgba(255,215,0,0.15); border: 1px solid #f1c40f; border-radius: 6px; padding: 4px 6px; margin: 4px 0; text-align: center; font-size: 11px; max-width: 100%; }
+  .supply .card { display: inline-flex; width: 30px; height: 42px; font-size: 12px; margin: 1px; cursor: pointer; }
+
+  .hand {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 3px;
+    padding: 6px;
+    background: rgba(0,0,0,0.25);
+    border-radius: 8px;
+    min-height: 72px;
+    justify-content: center;
+    margin-bottom: 6px;
+  }
+  .card {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 48px;
+    height: 64px;
+    background: #fff;
+    color: #000;
+    border-radius: 5px;
+    font-weight: bold;
+    font-size: 18px;
+    border: 2px solid #333;
+    cursor: pointer;
+    user-select: none;
+    position: relative;
+    transition: transform 0.1s;
+  }
   .card.red { color: red; }
   .card.trump { box-shadow: 0 0 6px gold; }
   .card.sel { border: 3px solid #f1c40f; transform: translateY(-6px); }
   .card.back { background: #34495e; color: transparent; }
-  .card .sm { position: absolute; top: 1px; right: 2px; font-size: 8px; color: #e67e22; }
-  .actions { text-align: center; margin: 10px 0; }
-  .actions button { padding: 8px 18px; margin: 3px; font-size: 14px; border: none; border-radius: 6px; background: #f39c12; color: #fff; font-weight: bold; }
-  .actions button:disabled { background: #666; }
+  .card .sm { position: absolute; top: 1px; right: 2px; font-size: 10px; color: #e67e22; }
+
+  .actions { text-align: center; margin: 4px 0; min-height: 34px; }
+  .actions button { padding: 8px 18px; margin: 3px; font-size: 14px; border: none; border-radius: 6px; background: #f39c12; color: #fff; font-weight: bold; cursor: pointer; }
+  .actions button:disabled { background: #666; cursor: not-allowed; }
   .btn-ok { background: #27ae60 !important; }
   .btn-sweep { background: #9b59b6 !important; }
   .btn-draw { background: #3498db !important; }
   .btn-ban2 { background: #e74c3c !important; }
-  .reveal { background: rgba(52,152,219,0.2); border: 1px solid #3498db; border-radius: 6px; padding: 6px; margin: 6px 0; text-align: center; font-size: 12px; }
-   .reveal .card { width: 34px; height: 48px; font-size: 14px; margin: 2px; }
-  .supply { background: rgba(255,215,0,0.15); border: 1px solid #f1c40f; border-radius: 6px; padding: 6px; margin: 6px 0; text-align: center; font-size: 12px; }
-    .supply .card { width: 34px; height: 48px; font-size: 14px; display: inline-flex; margin: 2px; cursor: pointer; }
+
+  .surrender-view {
+    background: rgba(231,76,60,0.2);
+    border: 2px solid #e74c3c;
+    border-radius: 8px;
+    padding: 10px;
+    max-height: 300px;
+    overflow-y: auto;
+    text-align: left;
+    font-size: 12px;
+  }
+  .surrender-view h3 { color: #f1c40f; text-align: center; margin: 0 0 8px; font-size: 15px; }
+  .surrender-view .p-row { margin: 4px 0; }
+  .surrender-view .p-name { color: #f1c40f; font-weight: bold; }
+  .surrender-view .p-card { display: inline-block; background: #fff; color: #000; border-radius: 3px; padding: 1px 4px; margin: 1px; font-weight: bold; font-size: 11px; }
+
+  .lobby { text-align: center; margin-top: 40px; }
+  .lobby input { padding: 10px; font-size: 18px; width: 160px; text-align: center; border-radius: 8px; border: none; margin-bottom: 14px; display: block; margin-left: auto; margin-right: auto; }
+  .lobby button { padding: 10px 24px; font-size: 16px; margin: 8px; border: none; border-radius: 8px; background: #f39c12; color: #fff; font-weight: bold; cursor: pointer; }
+  .waiting { text-align: center; margin-top: 60px; font-size: 18px; color: #f1c40f; }
 </style>
 </head>
 <body>
 
-<h1>办二 / 摔小二</h1>
+<h1 style="text-align:center;font-size:18px;margin:6px 0;">办二 / 摔小二</h1>
 
 <div class="lobby" id="lobby">
   <input id="nicknameInput" placeholder="昵称（可留空）" maxlength="8">
-  <br>
   <input id="roomInput" placeholder="房间号" maxlength="4">
-  <br>
   <button onclick="joinRoom()">加入房间</button>
   <button onclick="createRoom()">创建房间</button>
 </div>
@@ -63,16 +213,61 @@
 
 <div class="game" id="game">
   <div class="top-bar">
-    <span>玩家<span id="myIdxLabel">?</span></span>
+    <span>你：<span id="myIdxLabel">?</span></span>
     <span class="trump">主牌：<span id="trumpLabel">-</span></span>
     <span class="vice">副家：<span id="viceLabel">0</span></span>
   </div>
-  <div class="msg" id="msg"></div>
-  <div class="trick" id="trick"></div>
-    <div class="reveal" id="reveal" style="display:none"></div>
-  <div class="supply" id="supply" style="display:none"></div>
-  <div class="reveal" id="bottomView" style="display:none"></div>
-  <div class="others" id="others"></div>
+
+  <div class="table-area">
+    <div class="seat seat-top" id="seatTop">
+      <div class="seat-info">
+        <span class="seat-name" id="nameTop">-</span>
+        <span class="seat-status" id="statusTop"></span>
+        <span class="seat-count" id="countTop"></span>
+      </div>
+      <div class="seat-avatar" id="avatarTop">-</div>
+      <div class="seat-cards" id="cardsTop"></div>
+    </div>
+
+    <div class="seat seat-left" id="seatLeft">
+      <div class="seat-info">
+        <span class="seat-name" id="nameLeft">-</span>
+        <span class="seat-status" id="statusLeft"></span>
+        <span class="seat-count" id="countLeft"></span>
+      </div>
+      <div class="seat-avatar" id="avatarLeft">-</div>
+      <div class="seat-cards" id="cardsLeft"></div>
+    </div>
+
+    <div class="center-area" id="centerArea">
+      <div class="msg" id="msg"></div>
+      <div class="reveal" id="reveal" style="display:none"></div>
+      <div class="supply" id="supply" style="display:none"></div>
+      <div class="reveal" id="bottomView" style="display:none"></div>
+      <div class="center-hint" id="centerHint"></div>
+    </div>
+
+    <div class="seat seat-right" id="seatRight">
+      <div class="seat-info">
+        <span class="seat-name" id="nameRight">-</span>
+        <span class="seat-status" id="statusRight"></span>
+        <span class="seat-count" id="countRight"></span>
+      </div>
+      <div class="seat-avatar" id="avatarRight">-</div>
+      <div class="seat-cards" id="cardsRight"></div>
+    </div>
+
+    <div class="seat seat-bottom" id="seatBottom">
+      <div class="seat-info">
+        <span class="seat-name" id="nameBottom">-</span>
+        <span class="seat-status" id="statusBottom"></span>
+        <span class="seat-count" id="countBottom"></span>
+      </div>
+      <div class="seat-avatar" id="avatarBottom">-</div>
+      <div class="seat-cards" id="cardsBottom"></div>
+    </div>
+  </div>
+
   <div class="hand" id="hand"></div>
   <div class="actions" id="actions"></div>
 </div>
@@ -88,11 +283,21 @@ let returnDealerSel = new Set();
 let returnPartnerSel = new Set();
 let nicknames = ['', '', '', ''];
 
+// 座位映射：根据 myIndex 决定每个位置是哪个玩家
+// 规律：自己在下，对家在上，右边是"下家"，左边是"上家"
+function getSeatMap(myIdx) {
+  return {
+    bottom: myIdx,
+    top: (myIdx + 2) % 4,
+    right: (myIdx + 1) % 4,
+    left: (myIdx + 3) % 4,
+  };
+}
+
 function getNick(p) {
   const nk = nicknames[p] || '';
   return nk ? `${p + 1}-${nk}` : `${p + 1}`;
 }
-
 function isTrump(c, ts) {
   if (!ts) return false;
   if (c.suit === 'joker') return true;
@@ -123,7 +328,6 @@ function joinRoom() {
 function initSocket() {
   socket = io();
 
-  // 连接成功后，如果 sessionStorage 里有房间信息，自动重连
   socket.on('connect', () => {
     const savedRoomId = sessionStorage.getItem('ban2_roomId');
     const savedToken = sessionStorage.getItem('ban2_token');
@@ -132,7 +336,7 @@ function initSocket() {
     }
   });
 
-socket.on('roomCreated', ({ roomId: id, playerIndex, token, nicknames: nk }) => {
+  socket.on('roomCreated', ({ roomId: id, playerIndex, token, nicknames: nk }) => {
     roomId = id; myIndex = playerIndex;
     if (nk) nicknames = nk;
     sessionStorage.setItem('ban2_roomId', id);
@@ -152,8 +356,9 @@ socket.on('roomCreated', ({ roomId: id, playerIndex, token, nicknames: nk }) => 
     document.getElementById('waiting').style.display = 'block';
   });
 
-  socket.on('reconnected', ({ roomId: id, playerIndex, token }) => {
+  socket.on('reconnected', ({ roomId: id, playerIndex, token, nicknames: nk }) => {
     roomId = id; myIndex = playerIndex;
+    if (nk) nicknames = nk;
     sessionStorage.setItem('ban2_roomId', id);
     sessionStorage.setItem('ban2_token', token);
     document.getElementById('lobby').style.display = 'none';
@@ -161,7 +366,7 @@ socket.on('roomCreated', ({ roomId: id, playerIndex, token, nicknames: nk }) => 
     document.getElementById('game').style.display = 'block';
   });
 
-socket.on('roomUpdate', ({ count, nicknames: nk }) => {
+  socket.on('roomUpdate', ({ count, nicknames: nk }) => {
     if (nk) nicknames = nk;
     document.getElementById('waitCount').textContent = count;
     if (count === 4) {
@@ -193,7 +398,7 @@ socket.on('roomUpdate', ({ count, nicknames: nk }) => {
     render();
   });
 
-   socket.on('msg', (m) => {
+  socket.on('msg', (m) => {
     const el = document.getElementById('msg');
     el.textContent = m;
     setTimeout(() => { if (el.textContent === m) el.textContent = ''; }, 5000);
@@ -210,83 +415,156 @@ socket.on('roomUpdate', ({ count, nicknames: nk }) => {
   socket.on('err', (m) => alert(m));
 }
 
+// 填充某个位置的座位
+function fillSeat(position, playerIdx, s) {
+  const suffix = position.charAt(0).toUpperCase() + position.slice(1);
+  if (playerIdx === undefined || playerIdx === null || playerIdx < 0) {
+    document.getElementById('name' + suffix).innerHTML = '-';
+    document.getElementById('status' + suffix).textContent = '';
+    document.getElementById('count' + suffix).textContent = '';
+    document.getElementById('avatar' + suffix).textContent = '-';
+    document.getElementById('avatar' + suffix).className = 'seat-avatar';
+    document.getElementById('cards' + suffix).innerHTML = '';
+    document.getElementById('seat' + suffix).classList.remove('active');
+    return;
+  }
+
+  // 第一行：昵称；第二行：庄 / 办二 标记
+  const nick = getNick(playerIdx).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const tags = [];
+  if (playerIdx === s.dealer) tags.push('庄');
+  if (playerIdx === s.declareBy) tags.push('办二');
+  let nameHtml = nick;
+  if (tags.length) {
+    nameHtml += `<br><span style="color:#e74c3c;font-size:10px;font-weight:bold;">${tags.join(' ')}</span>`;
+  }
+  document.getElementById('name' + suffix).innerHTML = nameHtml;
+
+  const av = document.getElementById('avatar' + suffix);
+  av.textContent = playerIdx + 1;
+  av.className = 'seat-avatar' + (playerIdx === s.dealer ? ' dealer' : '');
+  document.getElementById('count' + suffix).textContent = (s.players[playerIdx] || []).length + '张';
+
+  // 第三行：状态
+  let status = '';
+  if (s.phase === 'dealing' && s.dealCurrent === playerIdx) status = '摸牌中';
+  else if (s.phase === 'play' && s.currentPlayer === playerIdx && !(s.currentTrick && s.currentTrick.some(p => p.player === playerIdx))) status = '思考中';
+  else if (s.phase === 'play' && s.currentTrick && s.currentTrick.some(p => p.player === playerIdx)) status = '已出牌';
+  document.getElementById('status' + suffix).textContent = status;
+
+  document.getElementById('seat' + suffix).classList.toggle('active',
+    (s.phase === 'play' && s.currentPlayer === playerIdx) ||
+    (s.phase === 'dealing' && s.dealCurrent === playerIdx));
+
+  let cardHtml = '';
+  if (s.currentTrick) {
+    const play = s.currentTrick.find(p => p.player === playerIdx);
+    if (play) {
+      const cards = play.cards || [play.card];
+      for (const c of cards) {
+        const red = c.suit === '♥' || c.suit === '♦';
+        const sc = getScore(c);
+        cardHtml += `<div class="mini-card ${red ? 'red' : ''}">${cardText(c)}${sc ? `<span class="sm">${sc}</span>` : ''}</div>`;
+      }
+    }
+  }
+  document.getElementById('cards' + suffix).innerHTML = cardHtml;
+}
+
 function render() {
   if (!state) return;
   const s = state;
-
-  // 投降结束特殊展示
-  if (s.phase === 'surrenderEnd') {
-    let sh = '<div style="background:rgba(231,76,60,0.3);padding:10px;border-radius:8px;"><div style="color:#f1c40f;font-weight:bold;text-align:center;margin-bottom:8px;font-size:16px;">副家投降，本局结束</div>';
-    for (let p = 0; p < 4; p++) {
-      sh += `<div style="margin:6px 0;font-size:12px;"><span style="color:#f1c40f;font-weight:bold;">${getNick(p)}${p === s.dealer ? '（庄）' : ''}:</span><br>`;
-      for (const c of s.players[p] || []) {
-        const red = c.suit === '♥' || c.suit === '♦';
-        sh += `<span style="display:inline-block;background:#fff;color:${red ? 'red' : '#000'};border-radius:3px;padding:2px 5px;margin:1px;font-weight:bold;">${cardText(c)}</span>`;
-      }
-      sh += `</div>`;
-    }
-    sh += `</div>`;
-    document.getElementById('trick').innerHTML = sh;
-    document.getElementById('reveal').style.display = 'none';
-    document.getElementById('supply').style.display = 'none';
-    document.getElementById('bottomView').style.display = 'none';
-    document.getElementById('hand').innerHTML = '';
-    document.getElementById('others').innerHTML = '';
-    document.getElementById('actions').innerHTML = `<button onclick="send('nextRound')">再来一局</button>`;
-    document.getElementById('myIdxLabel').textContent = getNick(myIndex);
-    document.getElementById('trumpLabel').textContent = s.trumpSuit ? SUIT_NAMES[s.trumpSuit] : '-';
-    document.getElementById('viceLabel').textContent = 0;
-    return;
-  }
   document.getElementById('myIdxLabel').textContent = getNick(myIndex);
   document.getElementById('trumpLabel').textContent = s.trumpSuit ? SUIT_NAMES[s.trumpSuit] : '-';
   document.getElementById('viceLabel').textContent = s.viceScore || 0;
 
-  // 出牌区
-  let th = '';
-  if (s.currentTrick && s.currentTrick.length > 0) {
-    for (const play of s.currentTrick) {
-      const cards = play.cards || [play.card];
-      th += `<div class="play"><div class="who">${getNick(play.player)}${play.sweep ? '(甩)' : ''}</div>`;
-    for (const c of cards) {
+  // 投降结束
+  if (s.phase === 'surrenderEnd') {
+    let sh = '<div class="surrender-view"><h3>副家投降，本局结束</h3>';
+    for (let p = 0; p < 4; p++) {
+      sh += `<div class="p-row"><span class="p-name">${getNick(p)}${p === s.dealer ? '（庄）' : ''}：</span><br>`;
+      for (const c of s.players[p] || []) {
         const red = c.suit === '♥' || c.suit === '♦';
-        th += `<div class="card ${red ? 'red' : ''}" style="width:42px;height:58px;font-size:17px;display:inline-flex;margin:2px;">${cardText(c)}</div>`;
+        sh += `<span class="p-card" style="color:${red ? 'red' : '#000'};">${cardText(c)}</span>`;
       }
-      th += `</div>`;
+      sh += `</div>`;
     }
-  } else {
-    th = '<span style="color:#aaa;font-size:12px;">等待出牌...</span>';
+    sh += `</div>`;
+    document.getElementById('msg').innerHTML = '';
+    document.getElementById('reveal').style.display = 'none';
+    document.getElementById('supply').style.display = 'none';
+    document.getElementById('bottomView').style.display = 'none';
+    document.getElementById('centerArea').innerHTML = sh;
+    // 隐藏 4 个座位 + 手牌
+    ['Top', 'Bottom', 'Left', 'Right'].forEach(pos => {
+      document.getElementById('seat' + pos).style.display = 'none';
+    });
+    document.getElementById('hand').innerHTML = '';
+    const ready = s.nextRoundReady || [false, false, false, false];
+    let actHtml = '';
+    if (!ready[myIndex]) {
+      actHtml += `<button onclick="send('nextRound')">再来一局</button>`;
+    } else {
+      actHtml += `<span style="color:#aaa;font-size:13px;">你已准备，等待其他玩家...</span>`;
+    }
+    let readyList = '';
+    for (let i = 0; i < 4; i++) if (ready[i]) readyList += (readyList ? '、' : '') + getNick(i);
+    if (readyList) actHtml += `<div style="margin-top:8px;color:#f1c40f;font-size:13px;">已准备：${readyList}</div>`;
+    document.getElementById('actions').innerHTML = actHtml;
+    return;
   }
-  document.getElementById('trick').innerHTML = th;
 
-  // 底牌展示
+  // 恢复座位显示
+  ['Top', 'Bottom', 'Left', 'Right'].forEach(pos => {
+    document.getElementById('seat' + pos).style.display = '';
+  });
+  // 恢复中央区结构（之前可能被 surrenderEnd 替换掉）
+  const centerArea = document.getElementById('centerArea');
+  if (!document.getElementById('msg')) {
+    centerArea.innerHTML = `
+      <div class="msg" id="msg"></div>
+      <div class="reveal" id="reveal" style="display:none"></div>
+      <div class="supply" id="supply" style="display:none"></div>
+      <div class="reveal" id="bottomView" style="display:none"></div>
+      <div class="center-hint" id="centerHint"></div>
+    `;
+  }
+
+  // 按视角填充座位
+  const map = getSeatMap(myIndex);
+  fillSeat('top', map.top, s);
+  fillSeat('bottom', map.bottom, s);
+  fillSeat('left', map.left, s);
+  fillSeat('right', map.right, s);
+
+  // 中央区域：底牌展示
   const revealEl = document.getElementById('reveal');
-   if (s.phase === 'flipReveal' || s.phase === 'bottomReveal' || s.phase === 'flipNoTrump') {
+  if (s.phase === 'flipReveal' || s.phase === 'bottomReveal' || s.phase === 'flipNoTrump') {
     revealEl.style.display = 'block';
     let rh = '<div style="color:#aaa;font-size:10px;">底牌</div>';
-        for (const c of s.revealedBottom || []) {
+    for (const c of s.revealedBottom || []) {
       const red = c.suit === '♥' || c.suit === '♦';
-      rh += `<div class="card ${red ? 'red' : ''}" style="width:34px;height:48px;font-size:14px;display:inline-flex;margin:2px;">${cardText(c)}</div>`;
+      rh += `<div class="card ${red ? 'red' : ''}">${cardText(c)}</div>`;
     }
     for (let i = s.revealIndex || 0; i < (s.bottom || []).length; i++) {
-      rh += `<div class="card back" style="width:34px;height:48px;display:inline-flex;margin:2px;">?</div>`;
+      rh += `<div class="card back">?</div>`;
     }
     revealEl.innerHTML = rh;
   } else {
     revealEl.style.display = 'none';
   }
 
-  // 庄家可以看到自己扣的底牌（仅庄家视角显示）
+  // 庄家看底牌
   const bottomViewEl = document.getElementById('bottomView');
   const canSeeBottom = myIndex === s.dealer &&
     (s.phase === 'play' || s.phase === 'supplySelect' || s.phase === 'supplyDistribute' || s.phase === 'supplyReturn') &&
     s.bottom && s.bottom.length === 6;
   if (canSeeBottom) {
     bottomViewEl.style.display = 'block';
-    let bh = '<div style="color:#aaa;font-size:10px;">你扣的底牌（仅你可见）</div>';
-        for (const c of s.bottom) {
+    let bh = '<div style="color:#aaa;font-size:10px;">你扣的底牌</div>';
+    for (const c of s.bottom) {
       const red = c.suit === '♥' || c.suit === '♦';
-      bh += `<div class="card ${red ? 'red' : ''}" style="width:34px;height:48px;font-size:14px;display:inline-flex;margin:2px;">${cardText(c)}</div>`;
+      bh += `<div class="card ${red ? 'red' : ''}">${cardText(c)}</div>`;
     }
     bottomViewEl.innerHTML = bh;
   } else {
@@ -294,7 +572,7 @@ function render() {
   }
 
   // 上供展示
-    const supplyEl = document.getElementById('supply');
+  const supplyEl = document.getElementById('supply');
   if (s.phase === 'supplyConfirm' || s.phase === 'supplyDistribute') {
     supplyEl.style.display = 'block';
     const isSupplyer = myIndex === s.supplyFrom;
@@ -307,37 +585,36 @@ function render() {
         const red = c.suit === '♥' || c.suit === '♦';
         const t = s.supplyAssign[i];
         const tag = c.tag === 'in' ? '<span style="position:absolute;top:-4px;left:-4px;background:#27ae60;color:#fff;font-size:9px;padding:1px 3px;border-radius:3px;z-index:10;">进</span>' : '';
-        sh += `<div style="display:inline-block;margin:4px;text-align:center;vertical-align:top;">`;
-        sh += `<div class="card ${red ? 'red' : ''}" style="width:34px;height:48px;font-size:14px;display:inline-flex;margin:0;position:relative;">${tag}${cardText(c)}</div>`;
+        sh += `<div style="display:inline-block;margin:3px;text-align:center;vertical-align:top;">`;
+        sh += `<div class="card ${red ? 'red' : ''}" style="position:relative;">${tag}${cardText(c)}</div>`;
         if (s.phase === 'supplyDistribute') {
           sh += `<div style="margin-top:2px;white-space:nowrap;">`;
-          sh += `<button style="font-size:10px;padding:3px 6px;margin:1px;background:${t === 0 ? '#27ae60' : '#555'};border:none;border-radius:3px;color:#fff;cursor:pointer;" onclick="send('assign',{index:${i},target:0})">给庄家</button>`;
-          sh += `<button style="font-size:10px;padding:3px 6px;margin:1px;background:${t === 1 ? '#e74c3c' : '#555'};border:none;border-radius:3px;color:#fff;cursor:pointer;" onclick="send('assign',{index:${i},target:1})">给对家</button>`;
+          sh += `<button style="font-size:9px;padding:2px 5px;margin:1px;background:${t === 0 ? '#27ae60' : '#555'};border:none;border-radius:3px;color:#fff;cursor:pointer;" onclick="send('assign',{index:${i},target:0})">庄</button>`;
+          sh += `<button style="font-size:9px;padding:2px 5px;margin:1px;background:${t === 1 ? '#e74c3c' : '#555'};border:none;border-radius:3px;color:#fff;cursor:pointer;" onclick="send('assign',{index:${i},target:1})">对</button>`;
           sh += `</div>`;
         }
         sh += `</div>`;
       } else {
-        sh += `<div class="card back" style="width:28px;height:42px;display:inline-flex;margin:1px;">?</div>`;
+        sh += `<div class="card back">?</div>`;
       }
     }
     if (s.phase === 'supplyDistribute' && (myIndex === s.dealer || myIndex === (s.dealer + 2) % 4 || isDist)) {
       let td = 0, tp = 0;
       for (const a of s.supplyAssign) { if (a === 0) td++; else tp++; }
-      sh += `<div style="font-size:10px;color:#f1c40f;margin-top:2px;">给庄家 ${td} 张，给庄家对家 ${tp} 张</div>`;
+      sh += `<div style="font-size:10px;color:#f1c40f;margin-top:2px;">给庄 ${td} 张，给对 ${tp} 张</div>`;
     }
     supplyEl.innerHTML = sh;
   } else {
     supplyEl.style.display = 'none';
   }
 
-  // 其他玩家手牌数
-  let oh = '';
-  for (let p = 0; p < 4; p++) {
-    if (p === myIndex) continue;
-    const cur = (s.phase === 'play' && s.currentPlayer === p) || (s.phase === 'dealing' && s.dealCurrent === p);
-    oh += `<span class="${cur ? 'cur' : ''}" style="margin-right:10px;">${getNick(p)}${p === s.dealer ? '(庄)' : ''}: ${(s.players[p] || []).length}张</span>`;
-  }
-  document.getElementById('others').innerHTML = oh;
+  // 中央提示
+  const ch = document.getElementById('centerHint');
+  if (s.phase === 'dealing') ch.textContent = '';
+  else if (s.phase === 'play') ch.textContent = (s.currentTrick && s.currentTrick.length === 4) ? '展示中...' : '';
+  else if (s.phase === 'bottom') ch.textContent = myIndex === s.dealer ? '请扣底' : '等待庄家扣底';
+  else if (s.phase === 'flipBottom') ch.textContent = '等待副家翻底';
+  else ch.textContent = '';
 
   // 我的手牌
   const handEl = document.getElementById('hand');
@@ -355,12 +632,12 @@ function render() {
       sel = returnDealerSel.has(i); clickable = true; onclick = `toggleReturnDealer(${i})`;
     } else if (s.phase === 'supplyReturn' && myIndex === (s.dealer + 2) % 4) {
       sel = returnPartnerSel.has(i); clickable = true; onclick = `toggleReturnPartner(${i})`;
-       } else if (s.phase === 'dealing' && s.trumpSuit === null && c.rank === '2') {
+    } else if (s.phase === 'dealing' && s.trumpSuit === null && c.rank === '2') {
       sel = selCards.has(i); clickable = true; onclick = `toggleSel(${i})`;
     } else if (s.phase === 'play' && myIndex === s.currentPlayer) {
       sel = selCards.has(i); clickable = true; onclick = `toggleSel(${i})`;
     }
- const ts = isTrump(c, s.trumpSuit);
+    const ts = isTrump(c, s.trumpSuit);
     const sc = getScore(c);
     const tag = c.tag === 'in' ? '<span style="position:absolute;top:-4px;left:-4px;background:#27ae60;color:#fff;font-size:9px;padding:1px 3px;border-radius:3px;z-index:10;">进</span>'
               : c.tag === 'out' ? '<span style="position:absolute;top:-4px;left:-4px;background:#e74c3c;color:#fff;font-size:9px;padding:1px 3px;border-radius:3px;z-index:10;">退</span>' : '';
@@ -371,7 +648,6 @@ function render() {
   // 操作按钮
   const actEl = document.getElementById('actions');
   let ah = '';
-  // 投降按钮（副家在特定阶段可点）
   const viceTeam = s.dealer >= 0 ? 1 - (s.dealer % 2) : -1;
   const surrenderPhases = ['flipBottom', 'flipReveal', 'bottom', 'supplyConfirm', 'supplyDistribute', 'supplyReturn'];
   const canSurrender = s.dealer >= 0 && myIndex % 2 === viceTeam && !s.surrenderVotes[myIndex] &&
@@ -379,11 +655,12 @@ function render() {
   if (canSurrender) {
     ah += `<button style="background:#c0392b;" onclick="send('surrender')">投降</button>`;
   }
+
   if (s.phase === 'dealing') {
     if (myIndex === s.dealCurrent && s.dealtCounts[myIndex] < 12) {
       ah += `<button class="btn-draw" onclick="send('drawCard')">摸牌 (${s.dealtCounts[myIndex]}/12)</button>`;
     }
-      if (s.trumpSuit === null && (s.players[myIndex] || []).some(c => c.rank === '2')) {
+    if (s.trumpSuit === null && (s.players[myIndex] || []).some(c => c.rank === '2')) {
       const selArr = [...selCards];
       let selSuit = '';
       if (selArr.length === 1) {
@@ -396,21 +673,21 @@ function render() {
     if (myIndex % 2 !== s.dealer % 2) {
       ah += `<button class="btn-sweep" onclick="send('flipBottom')">翻底定主</button>`;
     }
-
-   } else if (s.phase === 'flipReveal' || s.phase === 'bottomReveal') {
+  } else if (s.phase === 'flipReveal' || s.phase === 'bottomReveal') {
     ah += `<button class="btn-ok" onclick="send('revealNext')" ${(s.revealIndex || 0) >= (s.bottom || []).length ? 'disabled' : ''}>翻下一张 (${s.revealIndex || 0}/${(s.bottom || []).length})</button>`;
-  } else if (s.phase === 'flipNoTrump') {
-    if (myIndex === s.flipBy) {
-      ah += `<button class="btn-ok" onclick="send('nextRound')">重开一局</button>`;
+  } else if (s.phase === 'flipNoTrump' || s.phase === 'ended') {
+    const ready = s.nextRoundReady || [false, false, false, false];
+    if (!ready[myIndex]) {
+      ah += `<button onclick="send('nextRound')">再来一局</button>`;
+    } else {
+      ah += `<span style="color:#aaa;font-size:13px;">你已准备，等待其他玩家...</span>`;
     }
+    let readyList = '';
+    for (let i = 0; i < 4; i++) if (ready[i]) readyList += (readyList ? '、' : '') + getNick(i);
+    if (readyList) ah += `<div style="margin-top:8px;color:#f1c40f;font-size:13px;">已准备：${readyList}</div>`;
   } else if (s.phase === 'bottom') {
-
     if (myIndex === s.dealer) {
       ah += `<button class="btn-ok" onclick="send('confirmBottom',{indices:[...selCards]})" ${selCards.size === 6 ? '' : 'disabled'}>确认扣底 (${selCards.size}/6)</button>`;
-    }
-  } else if (s.phase === 'supplySelect') {
-    if (myIndex === s.supplyFrom) {
-      ah += `<button class="btn-ok" onclick="send('confirmSupplySelect',{indices:[...supplySel]})" ${supplySel.size === s.supplyCount ? '' : 'disabled'}>确认选牌 (${supplySel.size}/${s.supplyCount})</button>`;
     }
   } else if (s.phase === 'supplyConfirm') {
     if (myIndex === s.supplyFrom) {
@@ -422,7 +699,7 @@ function render() {
     if (myIndex === (s.supplyFrom + 2) % 4) {
       ah += `<button class="btn-ok" onclick="send('confirmSupplyDistribute')">确认分配</button>`;
     }
-   } else if (s.phase === 'supplyReturn') {
+  } else if (s.phase === 'supplyReturn') {
     if (myIndex === s.dealer && s.returnDealerCount > 0) {
       if (s.returnDealerSubmit !== null) {
         ah += `<span style="color:#aaa;">庄家已提交，等待对家...</span>`;
@@ -452,8 +729,6 @@ function render() {
         }
       }
     }
-  } else if (s.phase === 'ended') {
-    ah += `<button onclick="send('nextRound')">再来一局</button>`;
   }
   actEl.innerHTML = ah;
 }
@@ -470,7 +745,6 @@ function toggleSupply(i) {
   else if (supplySel.size < state.supplyCount) supplySel.add(i);
   render();
 }
-
 function toggleReturnDealer(i) {
   const c = state.players[myIndex][i];
   if (isTrump(c, state.trumpSuit)) { alert('不可以还主牌'); return; }
@@ -492,7 +766,6 @@ function toggleReturnPartner(i) {
   render();
 }
 
-// 页面可见时重连（移动端后台切回）
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible' && socket && !socket.connected) socket.connect();
 });
