@@ -87,7 +87,13 @@ function isValidPlay(hand, card, lead, ts) {
   if (has) return card.suit === ls && !isTrump(card, ts);
   return true;
 }
+
+function getNick(room, p) {
+  const nk = (room.nicknames && room.nicknames[p]) || '';
+  return nk ? `${p + 1}-${nk}` : `${p + 1}`;
+}
 function checkSweep(players, player, cards, ts, allTrump) {
+
   let min = cards[0];
   if (allTrump) {
     for (const c of cards) if (getTrumpRank(c, ts) < getTrumpRank(min, ts)) min = c;
@@ -145,7 +151,10 @@ function initRoom(room) {
     nextRoundReady: [false, false, false, false],
     returnDealerSubmit: null,
     returnPartnerSubmit: null,
+    
     trickPaused: false,
+    surrenderVotes: [false, false, false, false],
+    surrenderEnd: false,
   };
 }
 
@@ -154,7 +163,7 @@ function broadcastState(roomId) {
   if (!room || !room.state) return;
   room.players.forEach((p, idx) => {
     const s = io.sockets.sockets.get(p.socketId);
-    if (s) s.emit('stateUpdate', { state: room.state, yourIndex: idx, roomId });
+       if (s) s.emit('stateUpdate', { state: room.state, yourIndex: idx, roomId, nicknames: room.nicknames });
   });
 }
 
@@ -326,9 +335,10 @@ function enterSupplyOrPlay(room) {
     s.supplyCards = [];
     for (const i of idxs) s.supplyCards.push(s.players[from].splice(i, 1)[0]);
     sortHand(s.players[from], s.trumpSuit);
-    s.supplyAssign = s.supplyCards.map(() => 0);
-    s.phase = 'supplyDistribute';
-    io.to(room.id).emit('msg', `玩家${from + 1} 自动上供 ${chosen.length} 张主牌（不含 10、K）`);
+        s.supplyAssign = s.supplyCards.map(() => 0);
+    for (const c of s.supplyCards) c.tag = 'in';
+    s.phase = 'supplyConfirm';
+    io.to(room.id).emit('msg', `${getNick(room, from)} 上供 ${chosen.length} 张主牌，请确认`);
     return;
   }
   startPlay(room);
@@ -344,6 +354,12 @@ function startPlay(room) {
   s.supplyCount = 0;
   s.pendingSupply = null;
   s.supplyFromOverride = -1;
+}
+
+function confirmSupply(room) {
+  const s = room.state;
+  if (s.phase !== 'supplyConfirm') return;
+  s.phase = 'supplyDistribute';
 }
 
 // 保留旧函数，不会触发（auto supply 后不再进入 supplySelect）
@@ -406,13 +422,21 @@ function checkReturnFeasibility(room) {
   const pa = s.players[dp].filter(c => !isTrump(c, s.trumpSuit) && getCardScore(c) === 0);
   const psuits = new Set(pa.map(c => c.suit));
   let msg = [];
-  if (da.length < s.returnDealerCount && s.returnDealerCount > 0) {
-    for (let i = 0; i < s.returnDealerCount; i++) s.players[from].push(s.players[d].pop());
+    if (da.length < s.returnDealerCount && s.returnDealerCount > 0) {
+    for (let i = 0; i < s.returnDealerCount; i++) {
+      const c = s.players[d].pop();
+      c.tag = 'out';
+      s.players[from].push(c);
+    }
     msg.push(`庄家无法还牌，退回${s.returnDealerCount}张`);
     s.returnDealerCount = 0;
   }
   if (psuits.size < s.returnPartnerCount && s.returnPartnerCount > 0) {
-    for (let i = 0; i < s.returnPartnerCount; i++) s.players[from].push(s.players[dp].pop());
+    for (let i = 0; i < s.returnPartnerCount; i++) {
+      const c = s.players[dp].pop();
+      c.tag = 'out';
+      s.players[from].push(c);
+    }
     msg.push(`庄家对家无法还牌，退回${s.returnPartnerCount}张`);
     s.returnPartnerCount = 0;
   }
@@ -446,10 +470,19 @@ function confirmReturn(room, dealerIndices, partnerIndices) {
     usedSuits.add(c.suit);
   }
 
-  const di = [...(dealerIndices || [])].sort((a, b) => b - a);
-  for (const i of di) s.players[from].push(s.players[d].splice(i, 1)[0]);
+    const di = [...(dealerIndices || [])].sort((a, b) => b - a);
+  for (const i of di) {
+    const c = s.players[d].splice(i, 1)[0];
+    c.tag = 'out';
+    s.players[from].push(c);
+  }
   const pi = [...(partnerIndices || [])].sort((a, b) => b - a);
-  for (const i of pi) s.players[from].push(s.players[dp].splice(i, 1)[0]);
+  for (const i of pi) {
+    const c = s.players[dp].splice(i, 1)[0];
+    c.tag = 'out';
+    s.players[from].push(c);
+  }
+
   sortHand(s.players[d], s.trumpSuit);
   sortHand(s.players[dp], s.trumpSuit);
   sortHand(s.players[from], s.trumpSuit);
@@ -458,8 +491,33 @@ function confirmReturn(room, dealerIndices, partnerIndices) {
   startPlay(room);
 }
 
+function handleSurrender(room, p) {
+  const s = room.state;
+  const dealerTeam = s.dealer % 2;
+  const viceTeam = 1 - dealerTeam;
+  if (p % 2 !== viceTeam) return;
+  const validPhases = ['flipBottom', 'flipReveal', 'bottom', 'supplyConfirm', 'supplyDistribute', 'supplyReturn', 'play'];
+  if (!validPhases.includes(s.phase)) return;
+  if (s.phase === 'play' && (s.trickNumber > 0 || s.currentTrick.length > 0)) return;
+  if (s.surrenderVotes[p]) return;
+  s.surrenderVotes[p] = true;
+  const vicePlayers = [0,1,2,3].filter(i => i % 2 === viceTeam);
+  const votedCount = vicePlayers.filter(i => s.surrenderVotes[i]).length;
+  io.to(room.id).emit('msg', `${getNick(room, p)} 点了投降（${votedCount}/2）`);
+  const bothVoted = vicePlayers.every(i => s.surrenderVotes[i]);
+  if (bothVoted) {
+    s.phase = 'surrenderEnd';
+    s.surrenderEnd = true;
+    s.viceScore = 0;
+    s.pendingSupply = { cards: 3 };
+    s.nextRoundReady = [false, false, false, false];
+    io.to(room.id).emit('msg', '副家投降，本局结束。下把副家上供3张');
+  }
+}
+
 // ---------- 出牌 ----------
 function playCard(room, cardIndex) {
+
   const s = room.state;
   if (s.phase !== 'play' || s.sweepInfo || s.trickPaused) return;
   const p = s.currentPlayer;
@@ -631,7 +689,7 @@ function finishBottomReveal(room) {
     msg += `\n庄家不变，${info.cards > 0 ? `下把上供${info.cards}张` : '不上供'}`;
   } else {
     const nd = (s.dealer + 1) % 4;
-    msg += `\n换庄！新庄家玩家${nd + 1}，${info.cards > 0 ? `新副家上供${info.cards}张` : '不上供'}`;
+    msg += `\n换庄！新庄家 ${getNick(room, nd)}，${info.cards > 0 ? `新副家上供${info.cards}张` : '不上供'}`;
     s.dealer = nd;
   }
   s.pendingSupply = { cards: info.cards };
@@ -643,17 +701,19 @@ function finishBottomReveal(room) {
 
 // ---------- Socket.IO ----------
 io.on('connection', (socket) => {
-  socket.on('createRoom', () => {
+    socket.on('createRoom', ({ nickname } = {}) => {
     const id = Math.random().toString(36).substring(2, 6).toUpperCase();
     const token = Math.random().toString(36).substring(2, 12);
-    rooms[id] = { id, players: [], state: null, pendingBottomIndices: null };
+    const clean = (nickname || '').toString().trim().substring(0, 8);
+    rooms[id] = { id, players: [], state: null, pendingBottomIndices: null,
+      nicknames: [clean, '', '', ''] };
     rooms[id].players.push({ socketId: socket.id, token });
     initRoom(rooms[id]);
     socket.join(id);
-    socket.emit('roomCreated', { roomId: id, playerIndex: 0, token });
+    socket.emit('roomCreated', { roomId: id, playerIndex: 0, token, nicknames: rooms[id].nicknames });
   });
 
-  socket.on('joinRoom', ({ roomId }) => {
+    socket.on('joinRoom', ({ roomId, nickname }) => {
     const room = rooms[roomId];
     if (!room) { socket.emit('err', '房间不存在'); return; }
     let idx = room.players.findIndex(p => !p.socketId);
@@ -665,9 +725,11 @@ io.on('connection', (socket) => {
     } else {
       room.players[idx] = { socketId: socket.id, token };
     }
+    const clean = (nickname || '').toString().trim().substring(0, 8);
+    if (clean) room.nicknames[idx] = clean;
     socket.join(roomId);
-    socket.emit('joined', { roomId, playerIndex: idx, token });
-    io.to(roomId).emit('roomUpdate', { count: room.players.filter(p => p.socketId).length });
+    socket.emit('joined', { roomId, playerIndex: idx, token, nicknames: room.nicknames });
+    io.to(roomId).emit('roomUpdate', { count: room.players.filter(p => p.socketId).length, nicknames: room.nicknames });
     if (room.players.filter(p => p.socketId).length === 4) {
       initRoom(room);
       broadcastState(roomId);
@@ -717,7 +779,7 @@ io.on('connection', (socket) => {
         if (s.phase !== 'ended' && s.phase !== 'flipNoTrump') break;
         s.nextRoundReady[p] = true;
         const readyCount = s.nextRoundReady.filter(x => x).length;
-        io.to(room.id).emit('msg', `玩家${p + 1} 已准备（${readyCount}/4），等待其他玩家...`);
+        io.to(room.id).emit('msg', `${getNick(room, p)} 已准备（${readyCount}/4），等待其他玩家...`);
         if (s.nextRoundReady.every(x => x)) initRoom(room);
         break;
       }
@@ -733,9 +795,17 @@ io.on('connection', (socket) => {
         if (dealerDone && partnerDone) confirmReturn(room, s.returnDealerSubmit || [], s.returnPartnerSubmit || []);
         break;
       }
+
+            case 'confirmSupply':
+        if (s.phase === 'supplyConfirm' && p === s.supplyFrom) confirmSupply(room);
+        break;
+      case 'surrender':
+        handleSurrender(room, p);
+        break;
       case 'declareTwo':
         if (s.phase === 'dealing' && s.trumpSuit === null) declareTwo(room, p);
         break;
+
       case 'flipBottom':
         if (s.phase === 'flipBottom') flipBottom(room, p);
         break;
@@ -773,7 +843,19 @@ io.on('connection', (socket) => {
     broadcastState(roomId);
   });
 
+   socket.on('updateNickname', ({ roomId, nickname }) => {
+    const room = rooms[roomId];
+    if (!room) return;
+    const idx = room.players.findIndex(x => x.socketId === socket.id);
+    if (idx < 0) return;
+    const clean = (nickname || '').toString().trim().substring(0, 8);
+    room.nicknames[idx] = clean;
+    io.to(roomId).emit('roomUpdate', { count: room.players.filter(p => p.socketId).length, nicknames: room.nicknames });
+    broadcastState(roomId);
+  });
+
   socket.on('disconnect', () => {
+
     for (const id in rooms) {
       const room = rooms[id];
       const player = room.players.find(x => x.socketId === socket.id);

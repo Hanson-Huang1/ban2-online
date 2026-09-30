@@ -9,7 +9,7 @@
   body { font-family: 'Microsoft YaHei', Arial, sans-serif; background: #1a5c2a; color: #fff; margin: 0; padding: 8px; font-size: 14px; }
   h1 { text-align: center; font-size: 18px; margin: 8px 0; }
   .lobby { text-align: center; margin-top: 40px; }
-  .lobby input { padding: 10px; font-size: 18px; width: 140px; text-align: center; text-transform: uppercase; border-radius: 8px; border: none; }
+  .lobby input { padding: 10px; font-size: 18px; width: 140px; text-align: center; text-transform: uppercase; border-radius: 8px; border: none; margin-bottom: 14px; }
   .lobby button { padding: 10px 24px; font-size: 16px; margin: 8px; border: none; border-radius: 8px; background: #f39c12; color: #fff; font-weight: bold; }
   .waiting { text-align: center; margin-top: 60px; font-size: 18px; color: #f1c40f; }
   .game { display: none; }
@@ -48,6 +48,8 @@
 <h1>办二 / 摔小二</h1>
 
 <div class="lobby" id="lobby">
+  <input id="nicknameInput" placeholder="昵称（可留空）" maxlength="8">
+  <br>
   <input id="roomInput" placeholder="房间号" maxlength="4">
   <br>
   <button onclick="joinRoom()">加入房间</button>
@@ -84,6 +86,12 @@ let selCards = new Set();
 let supplySel = new Set();
 let returnDealerSel = new Set();
 let returnPartnerSel = new Set();
+let nicknames = ['', '', '', ''];
+
+function getNick(p) {
+  const nk = nicknames[p] || '';
+  return nk ? `${p + 1}-${nk}` : `${p + 1}`;
+}
 
 function isTrump(c, ts) {
   if (!ts) return false;
@@ -101,13 +109,15 @@ function send(type, params) {
 
 function createRoom() {
   if (!socket) initSocket();
-  socket.emit('createRoom');
+  const nickname = document.getElementById('nicknameInput').value.trim().substring(0, 8);
+  socket.emit('createRoom', { nickname });
 }
 function joinRoom() {
   const id = document.getElementById('roomInput').value.trim().toUpperCase();
   if (!id) return;
   if (!socket) initSocket();
-  socket.emit('joinRoom', { roomId: id });
+  const nickname = document.getElementById('nicknameInput').value.trim().substring(0, 8);
+  socket.emit('joinRoom', { roomId: id, nickname });
 }
 
 function initSocket() {
@@ -122,8 +132,9 @@ function initSocket() {
     }
   });
 
-  socket.on('roomCreated', ({ roomId: id, playerIndex, token }) => {
+socket.on('roomCreated', ({ roomId: id, playerIndex, token, nicknames: nk }) => {
     roomId = id; myIndex = playerIndex;
+    if (nk) nicknames = nk;
     sessionStorage.setItem('ban2_roomId', id);
     sessionStorage.setItem('ban2_token', token);
     document.getElementById('waitRoomId').textContent = id;
@@ -131,8 +142,9 @@ function initSocket() {
     document.getElementById('waiting').style.display = 'block';
   });
 
-  socket.on('joined', ({ roomId: id, playerIndex, token }) => {
+  socket.on('joined', ({ roomId: id, playerIndex, token, nicknames: nk }) => {
     roomId = id; myIndex = playerIndex;
+    if (nk) nicknames = nk;
     sessionStorage.setItem('ban2_roomId', id);
     sessionStorage.setItem('ban2_token', token);
     document.getElementById('waitRoomId').textContent = id;
@@ -149,7 +161,8 @@ function initSocket() {
     document.getElementById('game').style.display = 'block';
   });
 
-  socket.on('roomUpdate', ({ count }) => {
+socket.on('roomUpdate', ({ count, nicknames: nk }) => {
+    if (nk) nicknames = nk;
     document.getElementById('waitCount').textContent = count;
     if (count === 4) {
       document.getElementById('waiting').style.display = 'none';
@@ -160,7 +173,8 @@ function initSocket() {
   let lastPhase = '';
   let lastCurrentPlayer = -1;
   let lastTrickLen = 0;
-  socket.on('stateUpdate', ({ state: s, yourIndex }) => {
+  socket.on('stateUpdate', ({ state: s, yourIndex, nicknames: nk }) => {
+    if (nk) nicknames = nk;
     if (s.phase !== lastPhase ||
         s.currentPlayer !== lastCurrentPlayer ||
         (s.currentTrick ? s.currentTrick.length : 0) !== lastTrickLen) {
@@ -199,7 +213,32 @@ function initSocket() {
 function render() {
   if (!state) return;
   const s = state;
-  document.getElementById('myIdxLabel').textContent = myIndex + 1;
+
+  // 投降结束特殊展示
+  if (s.phase === 'surrenderEnd') {
+    let sh = '<div style="background:rgba(231,76,60,0.3);padding:10px;border-radius:8px;"><div style="color:#f1c40f;font-weight:bold;text-align:center;margin-bottom:8px;font-size:16px;">副家投降，本局结束</div>';
+    for (let p = 0; p < 4; p++) {
+      sh += `<div style="margin:6px 0;font-size:12px;"><span style="color:#f1c40f;font-weight:bold;">${getNick(p)}${p === s.dealer ? '（庄）' : ''}:</span><br>`;
+      for (const c of s.players[p] || []) {
+        const red = c.suit === '♥' || c.suit === '♦';
+        sh += `<span style="display:inline-block;background:#fff;color:${red ? 'red' : '#000'};border-radius:3px;padding:2px 5px;margin:1px;font-weight:bold;">${cardText(c)}</span>`;
+      }
+      sh += `</div>`;
+    }
+    sh += `</div>`;
+    document.getElementById('trick').innerHTML = sh;
+    document.getElementById('reveal').style.display = 'none';
+    document.getElementById('supply').style.display = 'none';
+    document.getElementById('bottomView').style.display = 'none';
+    document.getElementById('hand').innerHTML = '';
+    document.getElementById('others').innerHTML = '';
+    document.getElementById('actions').innerHTML = `<button onclick="send('nextRound')">再来一局</button>`;
+    document.getElementById('myIdxLabel').textContent = getNick(myIndex);
+    document.getElementById('trumpLabel').textContent = s.trumpSuit ? SUIT_NAMES[s.trumpSuit] : '-';
+    document.getElementById('viceLabel').textContent = 0;
+    return;
+  }
+  document.getElementById('myIdxLabel').textContent = getNick(myIndex);
   document.getElementById('trumpLabel').textContent = s.trumpSuit ? SUIT_NAMES[s.trumpSuit] : '-';
   document.getElementById('viceLabel').textContent = s.viceScore || 0;
 
@@ -208,7 +247,7 @@ function render() {
   if (s.currentTrick && s.currentTrick.length > 0) {
     for (const play of s.currentTrick) {
       const cards = play.cards || [play.card];
-      th += `<div class="play"><div class="who">玩家${play.player + 1}${play.sweep ? '(甩)' : ''}</div>`;
+      th += `<div class="play"><div class="who">${getNick(play.player)}${play.sweep ? '(甩)' : ''}</div>`;
     for (const c of cards) {
         const red = c.suit === '♥' || c.suit === '♦';
         th += `<div class="card ${red ? 'red' : ''}" style="width:42px;height:58px;font-size:17px;display:inline-flex;margin:2px;">${cardText(c)}</div>`;
@@ -256,26 +295,32 @@ function render() {
 
   // 上供展示
     const supplyEl = document.getElementById('supply');
-  if (s.phase === 'supplyDistribute') {
+  if (s.phase === 'supplyConfirm' || s.phase === 'supplyDistribute') {
     supplyEl.style.display = 'block';
+    const isSupplyer = myIndex === s.supplyFrom;
     const isDist = (myIndex + 2) % 4 === s.supplyFrom;
-    let sh = '<div style="color:#aaa;font-size:10px;">上供的牌</div>';
+    const canSee = (s.phase === 'supplyConfirm' && isSupplyer) || (s.phase === 'supplyDistribute' && isDist);
+    let sh = '<div style="color:#aaa;font-size:10px;">' + (s.phase === 'supplyConfirm' ? '你上供的牌' : '上供的牌') + '</div>';
     for (let i = 0; i < s.supplyCards.length; i++) {
       const c = s.supplyCards[i];
-      if (isDist) {
+      if (canSee) {
         const red = c.suit === '♥' || c.suit === '♦';
         const t = s.supplyAssign[i];
+        const tag = c.tag === 'in' ? '<span style="position:absolute;top:-4px;left:-4px;background:#27ae60;color:#fff;font-size:9px;padding:1px 3px;border-radius:3px;z-index:10;">进</span>' : '';
         sh += `<div style="display:inline-block;margin:4px;text-align:center;vertical-align:top;">`;
-               sh += `<div class="card ${red ? 'red' : ''}" style="width:34px;height:48px;font-size:14px;display:inline-flex;margin:0;">${cardText(c)}</div>`;
-        sh += `<div style="margin-top:2px;white-space:nowrap;">`;
-        sh += `<button style="font-size:10px;padding:3px 6px;margin:1px;background:${t === 0 ? '#27ae60' : '#555'};border:none;border-radius:3px;color:#fff;cursor:pointer;" onclick="send('assign',{index:${i},target:0})">给庄家</button>`;
-        sh += `<button style="font-size:10px;padding:3px 6px;margin:1px;background:${t === 1 ? '#e74c3c' : '#555'};border:none;border-radius:3px;color:#fff;cursor:pointer;" onclick="send('assign',{index:${i},target:1})">给对家</button>`;
-        sh += `</div></div>`;
+        sh += `<div class="card ${red ? 'red' : ''}" style="width:34px;height:48px;font-size:14px;display:inline-flex;margin:0;position:relative;">${tag}${cardText(c)}</div>`;
+        if (s.phase === 'supplyDistribute') {
+          sh += `<div style="margin-top:2px;white-space:nowrap;">`;
+          sh += `<button style="font-size:10px;padding:3px 6px;margin:1px;background:${t === 0 ? '#27ae60' : '#555'};border:none;border-radius:3px;color:#fff;cursor:pointer;" onclick="send('assign',{index:${i},target:0})">给庄家</button>`;
+          sh += `<button style="font-size:10px;padding:3px 6px;margin:1px;background:${t === 1 ? '#e74c3c' : '#555'};border:none;border-radius:3px;color:#fff;cursor:pointer;" onclick="send('assign',{index:${i},target:1})">给对家</button>`;
+          sh += `</div>`;
+        }
+        sh += `</div>`;
       } else {
         sh += `<div class="card back" style="width:28px;height:42px;display:inline-flex;margin:1px;">?</div>`;
       }
     }
-    if (myIndex === s.dealer || myIndex === (s.dealer + 2) % 4 || isDist) {
+    if (s.phase === 'supplyDistribute' && (myIndex === s.dealer || myIndex === (s.dealer + 2) % 4 || isDist)) {
       let td = 0, tp = 0;
       for (const a of s.supplyAssign) { if (a === 0) td++; else tp++; }
       sh += `<div style="font-size:10px;color:#f1c40f;margin-top:2px;">给庄家 ${td} 张，给庄家对家 ${tp} 张</div>`;
@@ -290,7 +335,7 @@ function render() {
   for (let p = 0; p < 4; p++) {
     if (p === myIndex) continue;
     const cur = (s.phase === 'play' && s.currentPlayer === p) || (s.phase === 'dealing' && s.dealCurrent === p);
-    oh += `<span class="${cur ? 'cur' : ''}" style="margin-right:10px;">玩家${p + 1}${p === s.dealer ? '(庄)' : ''}: ${(s.players[p] || []).length}张</span>`;
+    oh += `<span class="${cur ? 'cur' : ''}" style="margin-right:10px;">${getNick(p)}${p === s.dealer ? '(庄)' : ''}: ${(s.players[p] || []).length}张</span>`;
   }
   document.getElementById('others').innerHTML = oh;
 
@@ -313,15 +358,25 @@ function render() {
     } else if (s.phase === 'play' && myIndex === s.currentPlayer) {
       sel = selCards.has(i); clickable = true; onclick = `toggleSel(${i})`;
     }
-    const ts = isTrump(c, s.trumpSuit);
+ const ts = isTrump(c, s.trumpSuit);
     const sc = getScore(c);
-    hh += `<div class="card ${red ? 'red' : ''} ${sel ? 'sel' : ''} ${ts ? 'trump' : ''}" ${clickable ? `onclick="${onclick}"` : ''}>${cardText(c)}${sc ? `<span class="sm">${sc}</span>` : ''}</div>`;
+    const tag = c.tag === 'in' ? '<span style="position:absolute;top:-4px;left:-4px;background:#27ae60;color:#fff;font-size:9px;padding:1px 3px;border-radius:3px;z-index:10;">进</span>'
+              : c.tag === 'out' ? '<span style="position:absolute;top:-4px;left:-4px;background:#e74c3c;color:#fff;font-size:9px;padding:1px 3px;border-radius:3px;z-index:10;">退</span>' : '';
+    hh += `<div class="card ${red ? 'red' : ''} ${sel ? 'sel' : ''} ${ts ? 'trump' : ''}" style="position:relative;" ${clickable ? `onclick="${onclick}"` : ''}>${tag}${cardText(c)}${sc ? `<span class="sm">${sc}</span>` : ''}</div>`;
   }
   handEl.innerHTML = hh;
 
   // 操作按钮
   const actEl = document.getElementById('actions');
   let ah = '';
+  // 投降按钮（副家在特定阶段可点）
+  const viceTeam = s.dealer >= 0 ? 1 - (s.dealer % 2) : -1;
+  const surrenderPhases = ['flipBottom', 'flipReveal', 'bottom', 'supplyConfirm', 'supplyDistribute', 'supplyReturn'];
+  const canSurrender = s.dealer >= 0 && myIndex % 2 === viceTeam && !s.surrenderVotes[myIndex] &&
+    (surrenderPhases.includes(s.phase) || (s.phase === 'play' && s.trickNumber === 0 && s.currentTrick.length === 0));
+  if (canSurrender) {
+    ah += `<button style="background:#c0392b;" onclick="send('surrender')">投降</button>`;
+  }
   if (s.phase === 'dealing') {
     if (myIndex === s.dealCurrent && s.dealtCounts[myIndex] < 12) {
       ah += `<button class="btn-draw" onclick="send('drawCard')">摸牌 (${s.dealtCounts[myIndex]}/12)</button>`;
@@ -348,6 +403,12 @@ function render() {
   } else if (s.phase === 'supplySelect') {
     if (myIndex === s.supplyFrom) {
       ah += `<button class="btn-ok" onclick="send('confirmSupplySelect',{indices:[...supplySel]})" ${supplySel.size === s.supplyCount ? '' : 'disabled'}>确认选牌 (${supplySel.size}/${s.supplyCount})</button>`;
+    }
+  } else if (s.phase === 'supplyConfirm') {
+    if (myIndex === s.supplyFrom) {
+      ah += `<button class="btn-ok" onclick="send('confirmSupply')">确认上供</button>`;
+    } else {
+      ah += `<span style="color:#aaa;">等待上供者确认...</span>`;
     }
   } else if (s.phase === 'supplyDistribute') {
     if (myIndex === (s.supplyFrom + 2) % 4) {
