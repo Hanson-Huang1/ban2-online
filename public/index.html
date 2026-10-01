@@ -284,6 +284,7 @@ const SUIT_NAMES = { '♠': '黑桃', '♥': '红桃', '♣': '梅花', '♦': '
 const RANKS = ['2','3','4','5','6','7','8','9','10','J','Q','K','A'];
 let socket, myIndex = -1, roomId = '', state = null;
 let selCards = new Set();
+let selectedTwoSuit = '';
 let supplySel = new Set();
 let returnDealerSel = new Set();
 let returnPartnerSel = new Set();
@@ -386,14 +387,17 @@ function initSocket() {
   let lastTrickLen = 0;
   socket.on('stateUpdate', ({ state: s, yourIndex, nicknames: nk }) => {
     if (nk) nicknames = nk;
-       if (s.phase !== lastPhase ||
+           if (s.phase !== lastPhase ||
         s.currentPlayer !== lastCurrentPlayer ||
         (s.currentTrick ? s.currentTrick.length : 0) !== lastTrickLen) {
       selCards.clear();
       supplySel.clear();
       returnDealerSel.clear();
       returnPartnerSel.clear();
+      selectedTwoSuit = '';
     }
+    // 已经有人办二 → 清空选中
+    if (s.trumpSuit !== null && selectedTwoSuit !== '') selectedTwoSuit = '';
     // 提交/拒绝后清空对应选择
     if (s.phase === 'supplyReturn') {
       if (s.returnDealerState === 'submitted' && s.returnDealerSubmit && s.returnDealerSubmit.length > 0) {
@@ -421,6 +425,7 @@ function initSocket() {
     supplySel.clear();
     returnDealerSel.clear();
     returnPartnerSel.clear();
+    selectedTwoSuit = '';
     render();
   });
 
@@ -670,15 +675,10 @@ function render() {
     if (myIndex === s.dealCurrent && s.dealtCounts[myIndex] < 12) {
       ah += `<button class="btn-draw" onclick="send('drawCard')">摸牌 (${s.dealtCounts[myIndex]}/12)</button>`;
     }
-    if (s.trumpSuit === null && (s.players[myIndex] || []).some(c => c.rank === '2')) {
-      const selArr = [...selCards];
-      let selSuit = '';
-      if (selArr.length === 1) {
-        const c = s.players[myIndex][selArr[0]];
-        if (c && c.rank === '2') selSuit = c.suit;
-      }
-      ah += `<button class="btn-ban2" onclick="send('declareTwo',{cardSuit:'${selSuit}'})">办2</button>`;
+           if (s.trumpSuit === null && (s.players[myIndex] || []).some(c => c.rank === '2')) {
+      sideAh += `<button class="btn-ban2" onclick="send('declareTwo',{cardSuit:'${selectedTwoSuit}'})">办2</button>`;
     }
+
   } else if (s.phase === 'flipBottom') {
     if (myIndex % 2 !== s.dealer % 2) {
       ah += `<button class="btn-sweep" onclick="send('flipBottom')">翻底定主</button>`;
@@ -757,9 +757,25 @@ function render() {
 }
 
 function toggleSel(i) {
+  // 摸牌阶段：只能选一张 2，记录花色
+  if (state && state.phase === 'dealing' && state.trumpSuit === null) {
+    const c = state.players[myIndex][i];
+    if (!c || c.rank !== '2') return;
+    if (selCards.has(i)) {
+      selCards.delete(i);
+      selectedTwoSuit = '';
+    } else {
+      selCards.clear();
+      selCards.add(i);
+      selectedTwoSuit = c.suit;
+    }
+    render();
+    return;
+  }
   if (selCards.has(i)) selCards.delete(i); else selCards.add(i);
   render();
 }
+
 function toggleSupply(i) {
   const c = state.players[myIndex][i];
   if (!isTrump(c, state.trumpSuit)) { alert('上供必须是主牌'); return; }
