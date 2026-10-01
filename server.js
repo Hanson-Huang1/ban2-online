@@ -155,6 +155,8 @@ function initRoom(room) {
     trickPaused: false,
     surrenderVotes: [false, false, false, false],
     surrenderEnd: false,
+    returnDealerState: 'pending',
+    returnPartnerState: 'pending',
   };
 }
 
@@ -438,37 +440,137 @@ function confirmSupplyDistribute(room) {
   checkReturnFeasibility(room);
 }
 
+
 function checkReturnFeasibility(room) {
   const s = room.state;
-  const d = s.dealer, dp = (d + 2) % 4, from = s.supplyFrom;
+  const d = s.dealer, dp = (d + 2) % 4;
   const da = s.players[d].filter(c => !isTrump(c, s.trumpSuit) && getCardScore(c) === 0);
   const pa = s.players[dp].filter(c => !isTrump(c, s.trumpSuit) && getCardScore(c) === 0);
   const psuits = new Set(pa.map(c => c.suit));
-  let msg = [];
-    if (da.length < s.returnDealerCount && s.returnDealerCount > 0) {
-    for (let i = 0; i < s.returnDealerCount; i++) {
-      const c = s.players[d].pop();
-      c.tag = 'out';
-      s.players[from].push(c);
-    }
-    msg.push(`庄家无法还牌，退回${s.returnDealerCount}张`);
-    s.returnDealerCount = 0;
+
+  const dealerCantReturn = s.returnDealerCount > 0 && da.length < s.returnDealerCount;
+  const partnerCantReturn = s.returnPartnerCount > 0 && psuits.size < s.returnPartnerCount;
+
+  if (dealerCantReturn || partnerCantReturn) {
+    const msgs = [];
+    if (partnerCantReturn) msgs.push('庄家对家无法还牌');
+    if (dealerCantReturn) msgs.push('庄家无法还牌');
+    msgs.push('全部上供牌退回');
+    io.to(room.id).emit('msg', msgs.join('，'));
+    returnAllSupply(room);
+    return;
   }
-  if (psuits.size < s.returnPartnerCount && s.returnPartnerCount > 0) {
-    for (let i = 0; i < s.returnPartnerCount; i++) {
-      const c = s.players[dp].pop();
+
+  s.returnDealerState = s.returnDealerCount > 0 ? 'pending' : 'submitted';
+  s.returnPartnerState = s.returnPartnerCount > 0 ? 'pending' : 'submitted';
+  s.returnDealerSubmit = null;
+  s.returnPartnerSubmit = null;
+  s.phase = 'supplyReturn';
+}
+
+function handleSubmitReturn(room, p, role, indices) {
+  const s = room.state;
+  if (s.phase !== 'supplyReturn') return;
+  const d = s.dealer, dp = (d + 2) % 4;
+  if (role === 'dealer' && p === d && s.returnDealerCount > 0) {
+    s.returnDealerState = 'submitted';
+    s.returnDealerSubmit = indices;
+  } else if (role === 'partner' && p === dp && s.returnPartnerCount > 0) {
+    s.returnPartnerState = 'submitted';
+    s.returnPartnerSubmit = indices;
+  } else return;
+  checkSupplyDecisions(room);
+}
+
+function handleRefuseSupply(room, p) {
+  const s = room.state;
+  if (s.phase !== 'supplyReturn') return;
+  const d = s.dealer, dp = (d + 2) % 4;
+  if (p === d && s.returnDealerCount > 0) {
+    if (s.returnDealerState === 'refused') return;
+    s.returnDealerState = 'refused';
+  } else if (p === dp && s.returnPartnerCount > 0) {
+    if (s.returnPartnerState === 'refused') return;
+    s.returnPartnerState = 'refused';
+  } else return;
+  io.to(room.id).emit('msg', `${getNick(room, p)} 点了不要进牌`);
+  checkSupplyDecisions(room);
+}
+
+function checkSupplyDecisions(room) {
+  const s = room.state;
+  if (s.phase !== 'supplyReturn') return;
+
+  const dealerFinal = s.returnDealerCount === 0 ? 'submitted' : s.returnDealerState;
+  const partnerFinal = s.returnPartnerCount === 0 ? 'submitted' : s.returnPartnerState;
+
+  const bothRefused = dealerFinal === 'refused' && partnerFinal === 'refused';
+  const bothSubmitted = dealerFinal === 'submitted' && partnerFinal === 'submitted';
+
+  if (bothRefused) {
+    io.to(room.id).emit('msg', '双方都放弃进牌，全部上供牌退回');
+    returnAllSupply(room);
+    return;
+  }
+  if (bothSubmitted) {
+    executeReturn(room);
+    return;
+  }
+  // 其他情况：一方 refused、一方 submitted → 等待（玩家可改主意）
+}
+
+function executeReturn(room) {
+  const s = room.state;
+  const d = s.dealer, dp = (d + 2) % 4, from = s.supplyFrom;
+
+  if (s.returnDealerCount > 0 && s.returnDealerState === 'submitted') {
+    const indices = [...(s.returnDealerSubmit || [])].sort((a, b) => b - a);
+    for (const i of indices) {
+      const c = s.players[d].splice(i, 1)[0];
       c.tag = 'out';
       s.players[from].push(c);
     }
-    msg.push(`庄家对家无法还牌，退回${s.returnPartnerCount}张`);
-    s.returnPartnerCount = 0;
+  }
+  if (s.returnPartnerCount > 0 && s.returnPartnerState === 'submitted') {
+    const indices = [...(s.returnPartnerSubmit || [])].sort((a, b) => b - a);
+    for (const i of indices) {
+      const c = s.players[dp].splice(i, 1)[0];
+      c.tag = 'out';
+      s.players[from].push(c);
+    }
   }
   sortHand(s.players[d], s.trumpSuit);
   sortHand(s.players[dp], s.trumpSuit);
   sortHand(s.players[from], s.trumpSuit);
-  if (msg.length) io.to(room.id).emit('msg', msg.join('\n'));
-  if (s.returnDealerCount === 0 && s.returnPartnerCount === 0) { startPlay(room); return; }
-  s.phase = 'supplyReturn';
+  s.returnDealerState = 'pending';
+  s.returnPartnerState = 'pending';
+  s.returnDealerSubmit = null;
+  s.returnPartnerSubmit = null;
+  startPlay(room);
+}
+
+function returnAllSupply(room) {
+  const s = room.state;
+  const d = s.dealer, dp = (d + 2) % 4, from = s.supplyFrom;
+  for (const idx of [d, dp]) {
+    const kept = [];
+    for (const c of s.players[idx]) {
+      if (c.tag === 'in') { c.tag = 'out'; s.players[from].push(c); }
+      else kept.push(c);
+    }
+    s.players[idx] = kept;
+  }
+  s.returnDealerCount = 0;
+  s.returnPartnerCount = 0;
+  s.returnDealerSubmit = null;
+  s.returnPartnerSubmit = null;
+  s.returnDealerState = 'pending';
+  s.returnPartnerState = 'pending';
+  sortHand(s.players[d], s.trumpSuit);
+  sortHand(s.players[dp], s.trumpSuit);
+  sortHand(s.players[from], s.trumpSuit);
+  io.to(room.id).emit('msg', '全部上供牌退回');
+  startPlay(room);
 }
 
 function confirmReturn(room, dealerIndices, partnerIndices) {
@@ -587,12 +689,11 @@ function trySweep(room, indices) {
       io.to(room.id).emit('clearSelection');
       return;
     }
-    let min = cards[0], mi = indices[0];
+        let min = cards[0];
     for (let k = 0; k < cards.length; k++) {
-      if (RANKS.indexOf(cards[k].rank) < RANKS.indexOf(min.rank)) { min = cards[k]; mi = indices[k]; }
+      if (RANKS.indexOf(cards[k].rank) < RANKS.indexOf(min.rank)) { min = cards[k]; }
     }
-    const sorted = [...indices].sort((a, b) => b - a);
-    for (const i of sorted) if (i !== mi) s.players[p].splice(i, 1);
+    // 只移除最小的一张，其余留在手里
     const newIdx = s.players[p].findIndex(c => c === min);
     s.players[p].splice(newIdx, 1);
     s.leadCard = min;
@@ -618,20 +719,33 @@ function playSweepFollow(room, indices) {
   const p = s.currentPlayer;
   const cards = indices.map(i => s.players[p][i]);
   const sw = s.sweepInfo;
+
   if (sw.isTrump) {
-    const ht = s.players[p].filter(c => isTrump(c, s.trumpSuit));
-    if (ht.length >= need && !cards.every(c => isTrump(c, s.trumpSuit))) return;
+    // 甩主牌：手里有几张主牌，就必须至少出几张主牌（不足 need 的部分用副牌补）
+    const handTrump = s.players[p].filter(c => isTrump(c, s.trumpSuit));
+    const selTrump = cards.filter(c => isTrump(c, s.trumpSuit));
+    const mustTrump = Math.min(handTrump.length, need);
+    if (selTrump.length < mustTrump) {
+      io.to(room.id).emit('msg', `有主牌必须优先出主牌（至少出 ${mustTrump} 张）`);
+      return;
+    }
   } else {
-    const hs = s.players[p].filter(c => c.suit === sw.suit && !isTrump(c, s.trumpSuit));
-    if (hs.length >= need && !cards.every(c => c.suit === sw.suit && !isTrump(c, s.trumpSuit))) return;
+    // 甩副牌：手里有几张该花色，就必须至少出几张该花色
+    const handSuit = s.players[p].filter(c => c.suit === sw.suit && !isTrump(c, s.trumpSuit));
+    const selSuit = cards.filter(c => c.suit === sw.suit && !isTrump(c, s.trumpSuit));
+    const mustSuit = Math.min(handSuit.length, need);
+    if (selSuit.length < mustSuit) {
+      io.to(room.id).emit('msg', `必须优先出 ${mustSuit} 张${sw.suit}`);
+      return;
+    }
   }
-  const sorted = indices.sort((a, b) => b - a);
+
+  const sorted = [...indices].sort((a, b) => b - a);
   for (const i of sorted) s.players[p].splice(i, 1);
   s.currentTrick.push({ player: p, cards });
   if (s.currentTrick.length === 4) resolveTrick(room);
   else s.currentPlayer = (s.currentPlayer + 1) % 4;
 }
-
 function resolveTrick(room) {
   const s = room.state;
   if (s.trickPaused) return;
@@ -806,20 +920,14 @@ io.on('connection', (socket) => {
         if (s.nextRoundReady.every(x => x)) initRoom(room);
         break;
       }
-      case 'submitReturn': {
-        if (s.phase !== 'supplyReturn') break;
-        if (params.role === 'dealer' && p === s.dealer && s.returnDealerCount > 0) {
-          s.returnDealerSubmit = params.indices;
-        } else if (params.role === 'partner' && p === (s.dealer + 2) % 4 && s.returnPartnerCount > 0) {
-          s.returnPartnerSubmit = params.indices;
-        } else break;
-        const dealerDone = s.returnDealerCount === 0 || s.returnDealerSubmit !== null;
-        const partnerDone = s.returnPartnerCount === 0 || s.returnPartnerSubmit !== null;
-        if (dealerDone && partnerDone) confirmReturn(room, s.returnDealerSubmit || [], s.returnPartnerSubmit || []);
+            case 'submitReturn':
+        if (s.phase === 'supplyReturn') handleSubmitReturn(room, p, params.role, params.indices);
         break;
-      }
 
-            case 'confirmSupply':
+           case 'refuseSupply':
+        if (s.phase === 'supplyReturn') handleRefuseSupply(room, p);
+        break;
+      case 'confirmSupply':
         if (s.phase === 'supplyConfirm' && p === s.supplyFrom) confirmSupply(room);
         break;
       case 'surrender':

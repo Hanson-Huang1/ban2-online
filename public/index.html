@@ -166,7 +166,10 @@
   .card.back { background: #34495e; color: transparent; }
   .card .sm { position: absolute; top: 1px; right: 2px; font-size: 10px; color: #e67e22; }
 
-  .actions { text-align: center; margin: 4px 0; min-height: 34px; }
+    .actions-wrap { position: relative; margin: 4px 0; min-height: 40px; }
+  .actions { text-align: center; padding: 4px 0; }
+  .side-actions { position: absolute; right: 6%; top: 4px; }
+  .side-actions button { padding: 8px 18px; margin: 3px; font-size: 14px; border: none; border-radius: 6px; background: #c0392b; color: #fff; font-weight: bold; cursor: pointer; }
   .actions button { padding: 8px 18px; margin: 3px; font-size: 14px; border: none; border-radius: 6px; background: #f39c12; color: #fff; font-weight: bold; cursor: pointer; }
   .actions button:disabled { background: #666; cursor: not-allowed; }
   .btn-ok { background: #27ae60 !important; }
@@ -268,8 +271,11 @@
     </div>
   </div>
 
-  <div class="hand" id="hand"></div>
-  <div class="actions" id="actions"></div>
+    <div class="hand" id="hand"></div>
+  <div class="actions-wrap">
+    <div class="actions" id="actions"></div>
+    <div class="side-actions" id="sideActions"></div>
+  </div>
 </div>
 
 <script src="/socket.io/socket.io.js"></script>
@@ -380,13 +386,19 @@ function initSocket() {
   let lastTrickLen = 0;
   socket.on('stateUpdate', ({ state: s, yourIndex, nicknames: nk }) => {
     if (nk) nicknames = nk;
-    if (s.phase !== lastPhase ||
+       if (s.phase !== lastPhase ||
         s.currentPlayer !== lastCurrentPlayer ||
         (s.currentTrick ? s.currentTrick.length : 0) !== lastTrickLen) {
       selCards.clear();
       supplySel.clear();
       returnDealerSel.clear();
       returnPartnerSel.clear();
+    }
+    // 提交/拒绝后清空对应选择
+    if (s.phase === 'supplyReturn') {
+      if (s.returnDealerState === 'submitted' && s.returnDealerSubmit && s.returnDealerSubmit.length > 0) {
+        // 已提交，保留选中以便玩家查看
+      }
     }
     lastPhase = s.phase;
     lastCurrentPlayer = s.currentPlayer;
@@ -480,26 +492,22 @@ function render() {
 
   // 投降结束
   if (s.phase === 'surrenderEnd') {
-    let sh = '<div class="surrender-view"><h3>副家投降，本局结束</h3>';
-    for (let p = 0; p < 4; p++) {
-      sh += `<div class="p-row"><span class="p-name">${getNick(p)}${p === s.dealer ? '（庄）' : ''}：</span><br>`;
-      for (const c of s.players[p] || []) {
-        const red = c.suit === '♥' || c.suit === '♦';
-        sh += `<span class="p-card" style="color:${red ? 'red' : '#000'};">${cardText(c)}</span>`;
-      }
-      sh += `</div>`;
+  let sh = '<div class="surrender-view"><h3>副家投降，本局结束</h3>';
+  for (let p = 0; p < 4; p++) {
+    sh += `<div class="p-row"><span class="p-name">${getNick(p)}${p === s.dealer ? '（庄）' : ''}：</span><br>`;
+    for (const c of s.players[p] || []) {
+      const red = c.suit === '♥' || c.suit === '♦';
+      sh += `<span class="p-card" style="color:${red ? 'red' : '#000'};">${cardText(c)}</span>`;
     }
     sh += `</div>`;
-    document.getElementById('msg').innerHTML = '';
-    document.getElementById('reveal').style.display = 'none';
-    document.getElementById('supply').style.display = 'none';
-    document.getElementById('bottomView').style.display = 'none';
-    document.getElementById('centerArea').innerHTML = sh;
-    // 隐藏 4 个座位 + 手牌
-    ['Top', 'Bottom', 'Left', 'Right'].forEach(pos => {
-      document.getElementById('seat' + pos).style.display = 'none';
-    });
-    document.getElementById('hand').innerHTML = '';
+  }
+  sh += `</div>`;
+  document.getElementById('centerArea').innerHTML = sh;
+  ['Top', 'Bottom', 'Left', 'Right'].forEach(pos => {
+    const el = document.getElementById('seat' + pos);
+    if (el) el.style.display = 'none';
+  });
+  document.getElementById('hand').innerHTML = '';
     const ready = s.nextRoundReady || [false, false, false, false];
     let actHtml = '';
     if (!ready[myIndex]) {
@@ -647,13 +655,15 @@ function render() {
 
   // 操作按钮
   const actEl = document.getElementById('actions');
+  const sideEl = document.getElementById('sideActions');
   let ah = '';
+  let sideAh = '';
   const viceTeam = s.dealer >= 0 ? 1 - (s.dealer % 2) : -1;
   const surrenderPhases = ['flipBottom', 'flipReveal', 'bottom', 'supplyConfirm', 'supplyDistribute', 'supplyReturn'];
   const canSurrender = s.dealer >= 0 && myIndex % 2 === viceTeam && !s.surrenderVotes[myIndex] &&
     (surrenderPhases.includes(s.phase) || (s.phase === 'play' && s.trickNumber === 0 && s.currentTrick.length === 0));
   if (canSurrender) {
-    ah += `<button style="background:#c0392b;" onclick="send('surrender')">投降</button>`;
+    sideAh += `<button onclick="send('surrender')">投降</button>`;
   }
 
   if (s.phase === 'dealing') {
@@ -699,23 +709,35 @@ function render() {
     if (myIndex === (s.supplyFrom + 2) % 4) {
       ah += `<button class="btn-ok" onclick="send('confirmSupplyDistribute')">确认分配</button>`;
     }
-  } else if (s.phase === 'supplyReturn') {
-    if (myIndex === s.dealer && s.returnDealerCount > 0) {
-      if (s.returnDealerSubmit !== null) {
-        ah += `<span style="color:#aaa;">庄家已提交，等待对家...</span>`;
-      } else {
-        const okD = returnDealerSel.size === s.returnDealerCount;
-        ah += `<button class="btn-ok" onclick="send('submitReturn',{role:'dealer',indices:[...returnDealerSel]})" ${okD ? '' : 'disabled'}>确认还牌（庄家 ${returnDealerSel.size}/${s.returnDealerCount}）</button>`;
+   
+    } else if (s.phase === 'supplyReturn') {
+    const d = s.dealer, dp = (d + 2) % 4;
+    const isDealerReceiver = s.returnDealerCount > 0 && myIndex === d;
+    const isPartnerReceiver = s.returnPartnerCount > 0 && myIndex === dp;
+    if (isDealerReceiver || isPartnerReceiver) {
+      const stateVal = isDealerReceiver ? s.returnDealerState : s.returnPartnerState;
+      const selSet = isDealerReceiver ? returnDealerSel : returnPartnerSel;
+      const count = isDealerReceiver ? s.returnDealerCount : s.returnPartnerCount;
+      const role = isDealerReceiver ? 'dealer' : 'partner';
+
+      // 还牌按钮（一直存在）
+      const ok = selSet.size === count;
+      ah += `<button class="btn-ok" onclick="send('submitReturn',{role:'${role}',indices:[...${isDealerReceiver ? 'returnDealerSel' : 'returnPartnerSel'}]})" ${ok ? '' : 'disabled'}>确认还牌（${selSet.size}/${count}）</button>`;
+      if (stateVal === 'submitted') {
+        ah += `<div style="color:#2ecc71;font-size:12px;margin-top:4px;">✓ 已提交还牌</div>`;
       }
-    } else if (myIndex === (s.dealer + 2) % 4 && s.returnPartnerCount > 0) {
-      if (s.returnPartnerSubmit !== null) {
-        ah += `<span style="color:#aaa;">对家已提交，等待庄家...</span>`;
+
+      // 不要进牌按钮（一直存在，点了变灰）
+      if (stateVal === 'refused') {
+        sideAh += `<button style="background:#888;" disabled>已点不要进牌</button>`;
       } else {
-        const okP = returnPartnerSel.size === s.returnPartnerCount;
-        ah += `<button class="btn-ok" onclick="send('submitReturn',{role:'partner',indices:[...returnPartnerSel]})" ${okP ? '' : 'disabled'}>确认还牌（对家 ${returnPartnerSel.size}/${s.returnPartnerCount}）</button>`;
+        sideAh += `<button style="background:#c0392b;" onclick="send('refuseSupply')">不要进牌</button>`;
       }
+    } else {
+      ah += `<span style="color:#aaa;">等待还牌...</span>`;
     }
   } else if (s.phase === 'play') {
+
     if (s.currentTrick.length === 4) {
       ah += `<span style="color:#aaa;font-size:12px;">本轮结束，展示中...</span>`;
     } else if (myIndex === s.currentPlayer) {
@@ -730,7 +752,8 @@ function render() {
       }
     }
   }
-  actEl.innerHTML = ah;
+    actEl.innerHTML = ah;
+  sideEl.innerHTML = sideAh;
 }
 
 function toggleSel(i) {
@@ -755,14 +778,19 @@ function toggleReturnDealer(i) {
 }
 function toggleReturnPartner(i) {
   const c = state.players[myIndex][i];
+  // 已选中 → 直接取消
+  if (returnPartnerSel.has(i)) {
+    returnPartnerSel.delete(i);
+    render();
+    return;
+  }
   if (isTrump(c, state.trumpSuit)) { alert('不可以还主牌'); return; }
   if (getScore(c) > 0) { alert('不可以还 5、10、K'); return; }
   for (const idx of returnPartnerSel) {
     const other = state.players[myIndex][idx];
     if (other.suit === c.suit) { alert('庄家对家还牌必须不同花色'); return; }
   }
-  if (returnPartnerSel.has(i)) returnPartnerSel.delete(i);
-  else if (returnPartnerSel.size < state.returnPartnerCount) returnPartnerSel.add(i);
+  if (returnPartnerSel.size < state.returnPartnerCount) returnPartnerSel.add(i);
   render();
 }
 
