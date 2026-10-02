@@ -330,17 +330,13 @@ function enterSupplyOrPlay(room) {
   const s = room.state;
   const ps = s.pendingSupply;
   if (ps && ps.cards > 0) {
-    // 根据本局的办二者 / 翻底者确定上供者
     const dealerTeam = s.dealer % 2;
     let from;
     if (s.declareBy >= 0 && (s.declareBy % 2) !== dealerTeam) {
-      // 副家有人办二 → 上供者 = 办二者的对家
       from = (s.declareBy + 2) % 4;
     } else if (s.flipBy >= 0 && (s.flipBy % 2) !== dealerTeam) {
-      // 无人办二，副家某人翻底 → 上供者 = 翻底者的对家
       from = (s.flipBy + 2) % 4;
     } else {
-      // 默认：庄家的下家
       from = (s.dealer + 1) % 4;
     }
     s.supplyFrom = from;
@@ -355,12 +351,26 @@ function enterSupplyOrPlay(room) {
       legal.push({ idx: i, rank: getTrumpRank(c, s.trumpSuit) });
     }
     legal.sort((a, b) => b.rank - a.rank);
+
+    // 没有合法主牌 → 跳过整个上供流程，直接出牌
+    if (legal.length === 0) {
+      io.to(room.id).emit('msg', `${getNick(room, from)} 无可上供的主牌，跳过上供，直接出牌`);
+      s.supplyFrom = -1;
+      s.supplyCount = 0;
+      s.supplyCards = [];
+      s.supplyAssign = [];
+      s.pendingSupply = null;
+      s.supplyFromOverride = -1;
+      startPlay(room);
+      return;
+    }
+
     const chosen = legal.slice(0, s.supplyCount).map(x => x.idx);
     const idxs = [...chosen].sort((a, b) => b - a);
     s.supplyCards = [];
     for (const i of idxs) s.supplyCards.push(s.players[from].splice(i, 1)[0]);
     sortHand(s.players[from], s.trumpSuit);
-        s.supplyAssign = s.supplyCards.map(() => 0);
+    s.supplyAssign = s.supplyCards.map(() => 0);
     for (const c of s.supplyCards) c.tag = 'in';
     s.phase = 'supplyConfirm';
     io.to(room.id).emit('msg', `${getNick(room, from)} 上供 ${chosen.length} 张主牌，请确认`);
