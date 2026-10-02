@@ -81,6 +81,23 @@
   }
   .seat-avatar.dealer { background: #e74c3c; }
 
+.seat-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .seat-info-left {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1px;
+    text-align: left;
+  }
+  .seat-line2 {
+    display: flex;
+    gap: 8px;
+    font-size: 11px;
+  }
   .seat-cards {
     display: flex;
     flex-wrap: wrap;
@@ -230,13 +247,17 @@
   </div>
 
   <div class="table-area">
-    <div class="seat seat-top" id="seatTop">
-      <div class="seat-info">
-        <span class="seat-name" id="nameTop">-</span>
-        <span class="seat-status" id="statusTop"></span>
-        <span class="seat-count" id="countTop"></span>
+        <div class="seat seat-top" id="seatTop">
+      <div class="seat-row">
+        <div class="seat-avatar" id="avatarTop">-</div>
+        <div class="seat-info-left">
+          <span class="seat-name" id="nameTop">-</span>
+          <span class="seat-line2">
+            <span class="seat-status" id="statusTop"></span>
+            <span class="seat-count" id="countTop"></span>
+          </span>
+        </div>
       </div>
-      <div class="seat-avatar" id="avatarTop">-</div>
       <div class="seat-cards" id="cardsTop"></div>
     </div>
 
@@ -268,18 +289,22 @@
       <div class="seat-cards" id="cardsRight"></div>
     </div>
 
-    <div class="seat seat-bottom" id="seatBottom">
-      <div class="seat-info">
-        <span class="seat-name" id="nameBottom">-</span>
-        <span class="seat-status" id="statusBottom"></span>
-        <span class="seat-count" id="countBottom"></span>
+        <div class="seat seat-bottom" id="seatBottom">
+      <div class="seat-row">
+        <div class="seat-avatar" id="avatarBottom">-</div>
+        <div class="seat-info-left">
+          <span class="seat-name" id="nameBottom">-</span>
+          <span class="seat-line2">
+            <span class="seat-status" id="statusBottom"></span>
+            <span class="seat-count" id="countBottom"></span>
+          </span>
+        </div>
       </div>
-      <div class="seat-avatar" id="avatarBottom">-</div>
-      <div class="seat-cards" id="cardsBottom"></div>
+       <div class="seat-cards" id="cardsBottom"></div>
     </div>
   </div>
 
-    <div class="hand" id="hand"></div>
+  <div class="hand" id="hand"></div>
   <div class="actions-wrap">
     <div class="actions" id="actions"></div>
     <div class="side-actions" id="sideActions"></div>
