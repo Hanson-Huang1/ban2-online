@@ -42,8 +42,8 @@
 
   .seat-top { grid-row: 1; grid-column: 2; flex-direction: column; gap: 4px; }
   .seat-bottom { grid-row: 3; grid-column: 2; flex-direction: column-reverse; gap: 4px; }
-  .seat-left { grid-row: 2; grid-column: 1; flex-direction: row; gap: 4px; }
-  .seat-right { grid-row: 2; grid-column: 3; flex-direction: row-reverse; gap: 4px; }
+   .seat-left { grid-row: 2; grid-column: 1; flex-direction: row; gap: 4px; align-items: center; }
+  .seat-right { grid-row: 2; grid-column: 3; flex-direction: row-reverse; gap: 4px; align-items: center; }
 
  .seat-info {
     display: flex;
@@ -54,9 +54,10 @@
     text-align: center;
     line-height: 1.2;
   }
-  .seat-left .seat-info,
-  .seat-right .seat-info {
+   .seat-info-col {
+    display: flex;
     flex-direction: column;
+    align-items: center;
     gap: 1px;
     text-align: center;
   }
@@ -88,10 +89,13 @@
     align-items: center;
     max-width: 100%;
   }
-  .seat-left .seat-cards,
+    .seat-left .seat-cards,
   .seat-right .seat-cards {
     flex-direction: column;
     max-width: 60px;
+    gap: 2px;
+    max-height: 140px;
+    overflow-y: auto;
   }
 
   .center-area {
@@ -109,7 +113,7 @@
   .msg { text-align: center; color: #f1c40f; font-weight: bold; min-height: 18px; margin: 2px 0; font-size: 12px; }
   .center-hint { font-size: 11px; color: #aaa; }
 
-  .mini-card {
+    .mini-card {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -119,13 +123,14 @@
     color: #000;
     border-radius: 4px;
     font-weight: bold;
-    font-size: 13px;
+    font-size: 15px;
     border: 1.5px solid #333;
     position: relative;
     flex-shrink: 0;
   }
   .mini-card.red { color: red; }
-  .mini-card .sm { position: absolute; top: 0; right: 1px; font-size: 8px; color: #e67e22; }
+  .mini-card.club { color: #1565c0; }
+    .mini-card .sm { position: absolute; top: 0; right: 1px; font-size: 9px; color: #e67e22; }
 
   .reveal { background: rgba(52,152,219,0.2); border: 1px solid #3498db; border-radius: 6px; padding: 4px 6px; margin: 4px 0; text-align: center; font-size: 11px; max-width: 100%; }
   .reveal .card { display: inline-flex; width: 30px; height: 42px; font-size: 12px; margin: 1px; }
@@ -143,7 +148,8 @@
     justify-content: center;
     margin-bottom: 6px;
   }
-  .card {
+
+    .card {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -153,7 +159,7 @@
     color: #000;
     border-radius: 5px;
     font-weight: bold;
-    font-size: 18px;
+    font-size: 20px;
     border: 2px solid #333;
     cursor: pointer;
     user-select: none;
@@ -161,6 +167,8 @@
     transition: transform 0.1s;
   }
   .card.red { color: red; }
+  .card.club { color: #1565c0; }
+
   .card.trump { box-shadow: 0 0 6px gold; }
   .card.sel { border: 3px solid #f1c40f; transform: translateY(-6px); }
   .card.back { background: #34495e; color: transparent; }
@@ -232,13 +240,13 @@
       <div class="seat-cards" id="cardsTop"></div>
     </div>
 
-    <div class="seat seat-left" id="seatLeft">
-      <div class="seat-info">
+        <div class="seat seat-left" id="seatLeft">
+      <div class="seat-info-col">
+        <div class="seat-avatar" id="avatarLeft">-</div>
         <span class="seat-name" id="nameLeft">-</span>
         <span class="seat-status" id="statusLeft"></span>
         <span class="seat-count" id="countLeft"></span>
       </div>
-      <div class="seat-avatar" id="avatarLeft">-</div>
       <div class="seat-cards" id="cardsLeft"></div>
     </div>
 
@@ -250,13 +258,13 @@
       <div class="center-hint" id="centerHint"></div>
     </div>
 
-    <div class="seat seat-right" id="seatRight">
-      <div class="seat-info">
+        <div class="seat seat-right" id="seatRight">
+      <div class="seat-info-col">
+        <div class="seat-avatar" id="avatarRight">-</div>
         <span class="seat-name" id="nameRight">-</span>
         <span class="seat-status" id="statusRight"></span>
         <span class="seat-count" id="countRight"></span>
       </div>
-      <div class="seat-avatar" id="avatarRight">-</div>
       <div class="seat-cards" id="cardsRight"></div>
     </div>
 
@@ -304,6 +312,11 @@ function getSeatMap(myIdx) {
 function getNick(p) {
   const nk = nicknames[p] || '';
   return nk ? `${p + 1}-${nk}` : `${p + 1}`;
+}
+function suitClass(c) {
+  if (c.suit === '♥' || c.suit === '♦') return 'red';
+  if (c.suit === '♣') return 'club';
+  return '';
 }
 function isTrump(c, ts) {
   if (!ts) return false;
@@ -478,10 +491,9 @@ function fillSeat(position, playerIdx, s) {
     const play = s.currentTrick.find(p => p.player === playerIdx);
     if (play) {
       const cards = play.cards || [play.card];
-      for (const c of cards) {
-        const red = c.suit === '♥' || c.suit === '♦';
+           for (const c of cards) {
         const sc = getScore(c);
-        cardHtml += `<div class="mini-card ${red ? 'red' : ''}">${cardText(c)}${sc ? `<span class="sm">${sc}</span>` : ''}</div>`;
+        cardHtml += `<div class="mini-card ${suitClass(c)}">${cardText(c)}${sc ? `<span class="sm">${sc}</span>` : ''}</div>`;
       }
     }
   }
@@ -500,10 +512,11 @@ function render() {
   let sh = '<div class="surrender-view"><h3>副家投降，本局结束</h3>';
   for (let p = 0; p < 4; p++) {
     sh += `<div class="p-row"><span class="p-name">${getNick(p)}${p === s.dealer ? '（庄）' : ''}：</span><br>`;
-    for (const c of s.players[p] || []) {
-      const red = c.suit === '♥' || c.suit === '♦';
-      sh += `<span class="p-card" style="color:${red ? 'red' : '#000'};">${cardText(c)}</span>`;
-    }
+          for (const c of s.players[p] || []) {
+        const cls = suitClass(c);
+        const color = cls === 'red' ? 'red' : (cls === 'club' ? '#1565c0' : '#000');
+        sh += `<span class="p-card" style="color:${color};">${cardText(c)}</span>`;
+      }
     sh += `</div>`;
   }
   sh += `</div>`;
@@ -555,9 +568,8 @@ function render() {
   if (s.phase === 'flipReveal' || s.phase === 'bottomReveal' || s.phase === 'flipNoTrump') {
     revealEl.style.display = 'block';
     let rh = '<div style="color:#aaa;font-size:10px;">底牌</div>';
-    for (const c of s.revealedBottom || []) {
-      const red = c.suit === '♥' || c.suit === '♦';
-      rh += `<div class="card ${red ? 'red' : ''}">${cardText(c)}</div>`;
+       for (const c of s.revealedBottom || []) {
+      rh += `<div class="card ${suitClass(c)}">${cardText(c)}</div>`;
     }
     for (let i = s.revealIndex || 0; i < (s.bottom || []).length; i++) {
       rh += `<div class="card back">?</div>`;
@@ -575,9 +587,8 @@ function render() {
   if (canSeeBottom) {
     bottomViewEl.style.display = 'block';
     let bh = '<div style="color:#aaa;font-size:10px;">你扣的底牌</div>';
-    for (const c of s.bottom) {
-      const red = c.suit === '♥' || c.suit === '♦';
-      bh += `<div class="card ${red ? 'red' : ''}">${cardText(c)}</div>`;
+       for (const c of s.bottom) {
+      bh += `<div class="card ${suitClass(c)}">${cardText(c)}</div>`;
     }
     bottomViewEl.innerHTML = bh;
   } else {
@@ -594,12 +605,11 @@ function render() {
     let sh = '<div style="color:#aaa;font-size:10px;">' + (s.phase === 'supplyConfirm' ? '你上供的牌' : '上供的牌') + '</div>';
     for (let i = 0; i < s.supplyCards.length; i++) {
       const c = s.supplyCards[i];
-      if (canSee) {
-        const red = c.suit === '♥' || c.suit === '♦';
+            if (canSee) {
         const t = s.supplyAssign[i];
         const tag = c.tag === 'in' ? '<span style="position:absolute;top:-4px;left:-4px;background:#27ae60;color:#fff;font-size:9px;padding:1px 3px;border-radius:3px;z-index:10;">进</span>' : '';
         sh += `<div style="display:inline-block;margin:3px;text-align:center;vertical-align:top;">`;
-        sh += `<div class="card ${red ? 'red' : ''}" style="position:relative;">${tag}${cardText(c)}</div>`;
+        sh += `<div class="card ${suitClass(c)}" style="position:relative;">${tag}${cardText(c)}</div>`;
         if (s.phase === 'supplyDistribute') {
           sh += `<div style="margin-top:2px;white-space:nowrap;">`;
           sh += `<button style="font-size:9px;padding:2px 5px;margin:1px;background:${t === 0 ? '#27ae60' : '#555'};border:none;border-radius:3px;color:#fff;cursor:pointer;" onclick="send('assign',{index:${i},target:0})">庄</button>`;
@@ -633,9 +643,8 @@ function render() {
   const handEl = document.getElementById('hand');
   let hh = '';
   const myHand = s.players[myIndex] || [];
-  for (let i = 0; i < myHand.length; i++) {
+   for (let i = 0; i < myHand.length; i++) {
     const c = myHand[i];
-    const red = c.suit === '♥' || c.suit === '♦';
     let sel = false, clickable = false, onclick = '';
     if (s.phase === 'bottom' && myIndex === s.dealer) {
       sel = selCards.has(i); clickable = true; onclick = `toggleSel(${i})`;
@@ -652,9 +661,14 @@ function render() {
     }
     const ts = isTrump(c, s.trumpSuit);
     const sc = getScore(c);
-    const tag = c.tag === 'in' ? '<span style="position:absolute;top:-4px;left:-4px;background:#27ae60;color:#fff;font-size:9px;padding:1px 3px;border-radius:3px;z-index:10;">进</span>'
-              : c.tag === 'out' ? '<span style="position:absolute;top:-4px;left:-4px;background:#e74c3c;color:#fff;font-size:9px;padding:1px 3px;border-radius:3px;z-index:10;">退</span>' : '';
-    hh += `<div class="card ${red ? 'red' : ''} ${sel ? 'sel' : ''} ${ts ? 'trump' : ''}" style="position:relative;" ${clickable ? `onclick="${onclick}"` : ''}>${tag}${cardText(c)}${sc ? `<span class="sm">${sc}</span>` : ''}</div>`;
+        let tag = '';
+    if (c.tag === 'in') {
+      tag = '<span style="position:absolute;top:-4px;left:-4px;background:#27ae60;color:#fff;font-size:9px;padding:1px 3px;border-radius:3px;z-index:10;">进</span>';
+    } else if (typeof c.tag === 'string' && c.tag.startsWith('out')) {
+      const who = c.tag.slice(3);
+      tag = `<span style="position:absolute;top:-4px;left:-4px;background:#e74c3c;color:#fff;font-size:9px;padding:1px 3px;border-radius:3px;z-index:10;">${who ? who + '退' : '退'}</span>`;
+    }
+        hh += `<div class="card ${suitClass(c)} ${sel ? 'sel' : ''} ${ts ? 'trump' : ''}" style="position:relative;" ${clickable ? `onclick="${onclick}"` : ''}>${tag}${cardText(c)}${sc ? `<span class="sm">${sc}</span>` : ''}</div>`;
   }
   handEl.innerHTML = hh;
 

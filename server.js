@@ -523,11 +523,11 @@ function executeReturn(room) {
   const s = room.state;
   const d = s.dealer, dp = (d + 2) % 4, from = s.supplyFrom;
 
-  if (s.returnDealerCount > 0 && s.returnDealerState === 'submitted') {
+   if (s.returnDealerCount > 0 && s.returnDealerState === 'submitted') {
     const indices = [...(s.returnDealerSubmit || [])].sort((a, b) => b - a);
     for (const i of indices) {
       const c = s.players[d].splice(i, 1)[0];
-      c.tag = 'out';
+      c.tag = 'out' + (d + 1);
       s.players[from].push(c);
     }
   }
@@ -535,7 +535,7 @@ function executeReturn(room) {
     const indices = [...(s.returnPartnerSubmit || [])].sort((a, b) => b - a);
     for (const i of indices) {
       const c = s.players[dp].splice(i, 1)[0];
-      c.tag = 'out';
+      c.tag = 'out' + (dp + 1);
       s.players[from].push(c);
     }
   }
@@ -552,10 +552,10 @@ function executeReturn(room) {
 function returnAllSupply(room) {
   const s = room.state;
   const d = s.dealer, dp = (d + 2) % 4, from = s.supplyFrom;
-  for (const idx of [d, dp]) {
+    for (const idx of [d, dp]) {
     const kept = [];
     for (const c of s.players[idx]) {
-      if (c.tag === 'in') { c.tag = 'out'; s.players[from].push(c); }
+      if (c.tag === 'in') { c.tag = 'out' + (idx + 1); s.players[from].push(c); }
       else kept.push(c);
     }
     s.players[idx] = kept;
