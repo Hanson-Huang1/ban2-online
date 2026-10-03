@@ -220,7 +220,13 @@
   .lobby { text-align: center; margin-top: 40px; }
   .lobby input { padding: 10px; font-size: 18px; width: 160px; text-align: center; border-radius: 8px; border: none; margin-bottom: 14px; display: block; margin-left: auto; margin-right: auto; }
   .lobby button { padding: 10px 24px; font-size: 16px; margin: 8px; border: none; border-radius: 8px; background: #f39c12; color: #fff; font-weight: bold; cursor: pointer; }
-  .waiting { text-align: center; margin-top: 60px; font-size: 18px; color: #f1c40f; }
+    .waiting { text-align: center; margin-top: 30px; font-size: 16px; color: #f1c40f; }
+  .wait-player { display: inline-block; margin: 6px; padding: 8px 12px; background: rgba(0,0,0,0.3); border-radius: 8px; min-width: 76px; vertical-align: top; }
+  .wait-player.me { box-shadow: 0 0 0 2px #f1c40f; }
+  .wait-player.empty { opacity: 0.4; }
+  .wait-avatar { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 50%; background: #f39c12; color: #fff; font-weight: bold; font-size: 15px; }
+  .wait-player.me .wait-avatar { background: #f1c40f; }
+  .wait-name { font-size: 12px; color: #fff; margin-top: 4px; }
 </style>
 </head>
 <body>
@@ -235,8 +241,9 @@
 </div>
 
 <div class="waiting" id="waiting" style="display:none">
-  等待玩家加入... <span id="waitCount">1</span>/4<br>
-  <span style="font-size:14px;color:#aaa;">房间号：<span id="waitRoomId"></span></span>
+  <div>等待玩家加入... <span id="waitCount">1</span>/4</div>
+  <div style="font-size:14px;color:#aaa;">房间号：<span id="waitRoomId"></span></div>
+  <div id="waitPlayers" style="margin-top:20px;"></div>
 </div>
 
 <div class="game" id="game">
@@ -322,6 +329,29 @@ let supplySel = new Set();
 let returnDealerSel = new Set();
 let returnPartnerSel = new Set();
 let nicknames = ['', '', '', ''];
+let waitOccupied = [false, false, false, false];
+
+function renderWaitPlayers() {
+  const el = document.getElementById('waitPlayers');
+  if (!el) return;
+  let html = '';
+  for (let i = 0; i < 4; i++) {
+    const isMe = i === myIndex;
+    const hasPlayer = waitOccupied[i];
+    const name = hasPlayer ? getNick(i) : '等待中';
+    const cls = hasPlayer ? ('wait-player' + (isMe ? ' me' : '')) : 'wait-player empty';
+    html += `<div class="${cls}">
+      <div class="wait-avatar">${i + 1}</div>
+      <div class="wait-name">${name}${isMe ? '（你）' : ''}</div>
+    </div>`;
+  }
+  el.innerHTML = html;
+}
+
+function requestSwap(targetIndex) {
+  if (!socket || !roomId) return;
+  socket.emit('requestSwap', { roomId, targetIndex });
+}
 
 // 座位映射：根据 myIndex 决定每个位置是哪个玩家
 // 规律：自己在下，对家在上，右边是"下家"，左边是"上家"
@@ -367,7 +397,13 @@ function joinRoom() {
   if (!id) return;
   if (!socket) initSocket();
   const nickname = document.getElementById('nicknameInput').value.trim().substring(0, 8);
-  socket.emit('joinRoom', { roomId: id, nickname });
+  const savedRoomId = sessionStorage.getItem('ban2_roomId') || '';
+  const savedToken = sessionStorage.getItem('ban2_token') || '';
+  socket.emit('joinRoom', {
+    roomId: id,
+    nickname,
+    existingToken: (savedRoomId === id) ? savedToken : '',
+  });
 }
 
 function initSocket() {
@@ -388,7 +424,9 @@ function initSocket() {
     sessionStorage.setItem('ban2_token', token);
     document.getElementById('waitRoomId').textContent = id;
     document.getElementById('lobby').style.display = 'none';
-    document.getElementById('waiting').style.display = 'block';
+      document.getElementById('waiting').style.display = 'block';
+    waitOccupied[myIndex] = true;
+    renderWaitPlayers();
   });
 
   socket.on('joined', ({ roomId: id, playerIndex, token, nicknames: nk }) => {
@@ -401,23 +439,50 @@ function initSocket() {
     document.getElementById('waiting').style.display = 'block';
   });
 
-  socket.on('reconnected', ({ roomId: id, playerIndex, token, nicknames: nk }) => {
+     socket.on('reconnected', ({ roomId: id, playerIndex, token, nicknames: nk }) => {
     roomId = id; myIndex = playerIndex;
     if (nk) nicknames = nk;
     sessionStorage.setItem('ban2_roomId', id);
     sessionStorage.setItem('ban2_token', token);
+    document.getElementById('waitRoomId').textContent = id;
     document.getElementById('lobby').style.display = 'none';
-    document.getElementById('waiting').style.display = 'none';
-    document.getElementById('game').style.display = 'block';
+    document.getElementById('waiting').style.display = 'block';
+    document.getElementById('game').style.display = 'none';
+    waitOccupied[myIndex] = true;
+    renderWaitPlayers();
+    // 具体显示等待还是游戏，等 roomUpdate / stateUpdate 决定
   });
 
-  socket.on('roomUpdate', ({ count, nicknames: nk }) => {
+     socket.on('roomUpdate', ({ count, nicknames: nk, occupied }) => {
     if (nk) nicknames = nk;
+    if (occupied) waitOccupied = occupied;
     document.getElementById('waitCount').textContent = count;
+    renderWaitPlayers();
     if (count === 4) {
       document.getElementById('waiting').style.display = 'none';
       document.getElementById('game').style.display = 'block';
+    } else {
+      // 人数不足 4 → 停在等待界面
+      document.getElementById('waiting').style.display = 'block';
+      document.getElementById('game').style.display = 'none';
     }
+  });
+
+  socket.on('swapRequest', ({ fromIndex, fromNick }) => {
+    const accept = confirm(`${fromNick} 申请与你换位，是否同意？`);
+    socket.emit('respondSwap', { roomId, accept });
+  });
+
+  socket.on('swapped', ({ newIndex, nicknames: nk, count, occupied }) => {
+    if (nk) nicknames = nk;
+    if (occupied) waitOccupied = occupied;
+    myIndex = newIndex;
+    document.getElementById('waitCount').textContent = count;
+    renderWaitPlayers();
+  });
+
+  socket.on('swapRejected', () => {
+    alert('对方拒绝了换位请求');
   });
 
   let lastPhase = '';
@@ -467,7 +532,17 @@ function initSocket() {
     render();
   });
 
-  socket.on('err', (m) => alert(m));
+    socket.on('err', (m) => {
+    if (m === '房间不存在' || m === '重连失败') {
+      sessionStorage.removeItem('ban2_roomId');
+      sessionStorage.removeItem('ban2_token');
+      document.getElementById('game').style.display = 'none';
+      document.getElementById('waiting').style.display = 'none';
+      document.getElementById('lobby').style.display = 'block';
+      return;
+    }
+    alert(m);
+  });
 }
 
 // 填充某个位置的座位
@@ -522,7 +597,24 @@ function fillSeat(position, playerIdx, s) {
       }
     }
   }
-  document.getElementById('cards' + suffix).innerHTML = cardHtml;
+   document.getElementById('cards' + suffix).innerHTML = cardHtml;
+
+  // 需求3：换位窗口内，点击别人座位可申请换位
+  const seatEl = document.getElementById('seat' + suffix);
+  const swapOk = s.phase === 'dealing'
+              && s.trumpSuit === null
+              && s.declareBy === -1
+              && s.dealtCounts && s.dealtCounts.every(c => c === 0)
+              && playerIdx !== myIndex;
+  if (swapOk) {
+    seatEl.style.cursor = 'pointer';
+    seatEl.onclick = () => requestSwap(playerIdx);
+    seatEl.title = '点击申请换位';
+  } else {
+    seatEl.style.cursor = '';
+    seatEl.onclick = null;
+    seatEl.title = '';
+  }
 }
 
 function render() {

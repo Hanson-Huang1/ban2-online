@@ -157,6 +157,7 @@ function initRoom(room) {
     surrenderEnd: false,
     returnDealerState: 'pending',
     returnPartnerState: 'pending',
+    swapRequest: null,
   };
 }
 
@@ -860,12 +861,38 @@ io.on('connection', (socket) => {
     socket.emit('roomCreated', { roomId: id, playerIndex: 0, token, nicknames: rooms[id].nicknames });
   });
 
-    socket.on('joinRoom', ({ roomId, nickname }) => {
+     socket.on('joinRoom', ({ roomId, nickname, existingToken }) => {
     const room = rooms[roomId];
     if (!room) { socket.emit('err', '房间不存在'); return; }
+
+    // 需求4：优先 token 匹配，回到原位置
+    if (existingToken) {
+      const existingIdx = room.players.findIndex(p => p.token === existingToken);
+      if (existingIdx >= 0) {
+        if (room._deleteTimer) { clearTimeout(room._deleteTimer); room._deleteTimer = null; }
+        room.players[existingIdx].socketId = socket.id;
+        socket.join(roomId);
+        socket.emit('joined', { roomId, playerIndex: existingIdx, token: existingToken, nicknames: room.nicknames });
+        const activeCount = room.players.filter(p => p.socketId).length;
+        io.to(roomId).emit('roomUpdate', {
+          count: activeCount,
+          nicknames: room.nicknames,
+          occupied: room.players.map(p => !!(p && p.socketId)),
+        });
+        if (activeCount === 4 && room.state) {
+          socket.emit('stateUpdate', { state: room.state, yourIndex: existingIdx, roomId, nicknames: room.nicknames });
+        }
+        return;
+      }
+    }
+
+    // 需求2：判断重连
+    const isReconnect = room.players.length === 4 && room.players.some(p => !p.socketId);
+
     let idx = room.players.findIndex(p => !p.socketId);
     if (idx === -1 && room.players.length < 4) idx = room.players.length;
     if (idx === -1) { socket.emit('err', '房间已满'); return; }
+
     const token = Math.random().toString(36).substring(2, 12);
     if (idx >= room.players.length) {
       room.players.push({ socketId: socket.id, token });
@@ -876,24 +903,42 @@ io.on('connection', (socket) => {
     if (clean) room.nicknames[idx] = clean;
     socket.join(roomId);
     socket.emit('joined', { roomId, playerIndex: idx, token, nicknames: room.nicknames });
-    io.to(roomId).emit('roomUpdate', { count: room.players.filter(p => p.socketId).length, nicknames: room.nicknames });
-    if (room.players.filter(p => p.socketId).length === 4) {
-      initRoom(room);
-      broadcastState(roomId);
+    const activeCount = room.players.filter(p => p.socketId).length;
+    io.to(roomId).emit('roomUpdate', {
+      count: activeCount,
+      nicknames: room.nicknames,
+      occupied: room.players.map(p => !!(p && p.socketId)),
+    });
+    if (activeCount === 4) {
+      if (isReconnect) {
+        if (room.state) broadcastState(roomId);
+      } else {
+        initRoom(room);
+        broadcastState(roomId);
+      }
     }
   });
 
-  socket.on('reconnect', ({ roomId, token }) => {
+    socket.on('reconnect', ({ roomId, token }) => {
     const room = rooms[roomId];
     if (!room) { socket.emit('err', '房间不存在'); return; }
     const idx = room.players.findIndex(p => p.token === token);
     if (idx === -1) { socket.emit('err', '重连失败'); return; }
+    if (room._deleteTimer) {
+      clearTimeout(room._deleteTimer);
+      room._deleteTimer = null;
+    }
     room.players[idx].socketId = socket.id;
     socket.join(roomId);
-    socket.emit('reconnected', { roomId, playerIndex: idx, token });
-    io.to(roomId).emit('roomUpdate', { count: room.players.filter(p => p.socketId).length });
-    if (room.state) {
-      socket.emit('stateUpdate', { state: room.state, yourIndex: idx, roomId });
+    socket.emit('reconnected', { roomId, playerIndex: idx, token, nicknames: room.nicknames });
+    const activeCount = room.players.filter(p => p.socketId).length;
+    io.to(roomId).emit('roomUpdate', {
+      count: activeCount,
+      nicknames: room.nicknames,
+      occupied: room.players.map(p => !!(p && p.socketId)),
+    });
+    if (activeCount === 4 && room.state) {
+      socket.emit('stateUpdate', { state: room.state, yourIndex: idx, roomId, nicknames: room.nicknames });
     }
   });
 
@@ -995,14 +1040,88 @@ io.on('connection', (socket) => {
     broadcastState(roomId);
   });
 
-  socket.on('disconnect', () => {
+  socket.on('requestSwap', ({ roomId, targetIndex }) => {
+    const room = rooms[roomId];
+    if (!room || !room.state) return;
+    const s = room.state;
+    // 窗口：4 人齐 + dealing 阶段 + 无人摸牌 + 无人办二
+    const canSwap = s.phase === 'dealing'
+                 && s.trumpSuit === null
+                 && s.declareBy === -1
+                 && s.dealtCounts.every(c => c === 0)
+                 && room.players.filter(p => p.socketId).length === 4;
+    if (!canSwap) return;
+    const from = room.players.findIndex(x => x.socketId === socket.id);
+    if (from < 0) return;
+    if (targetIndex < 0 || targetIndex > 3 || targetIndex === from) return;
+    if (!room.players[from] || !room.players[from].socketId) return;
+    if (!room.players[targetIndex] || !room.players[targetIndex].socketId) return;
 
+    room.swapRequest = { from, to: targetIndex };
+    const targetSocket = io.sockets.sockets.get(room.players[targetIndex].socketId);
+    if (targetSocket) {
+      targetSocket.emit('swapRequest', {
+        fromIndex: from,
+        fromNick: room.nicknames[from] || `玩家${from + 1}`,
+      });
+    }
+  });
+
+  socket.on('respondSwap', ({ roomId, accept }) => {
+    const room = rooms[roomId];
+    if (!room || !room.state || !room.swapRequest) return;
+    const req = room.swapRequest;
+    const responder = room.players.findIndex(x => x.socketId === socket.id);
+    if (responder !== req.to) return;
+    room.swapRequest = null;
+    if (accept) {
+      // 交换位置和昵称
+      [room.players[req.from], room.players[req.to]] = [room.players[req.to], room.players[req.from]];
+      [room.nicknames[req.from], room.nicknames[req.to]] = [room.nicknames[req.to], room.nicknames[req.from]];
+      // 通知每个人新的索引
+      room.players.forEach((p, newIdx) => {
+        const soc = io.sockets.sockets.get(p.socketId);
+        if (soc) {
+          soc.emit('swapped', {
+            newIndex: newIdx,
+            nicknames: room.nicknames,
+            count: room.players.filter(x => x.socketId).length,
+            occupied: room.players.map(x => !!(x && x.socketId)),
+          });
+          // 关键：重新发 stateUpdate，让每人拿到新 yourIndex
+          if (room.state) {
+            soc.emit('stateUpdate', {
+              state: room.state,
+              yourIndex: newIdx,
+              roomId: room.id,
+              nicknames: room.nicknames,
+            });
+          }
+        }
+      });
+    } else {
+      const fromSocket = io.sockets.sockets.get(room.players[req.from].socketId);
+      if (fromSocket) fromSocket.emit('swapRejected');
+    }
+  });
+
+
+   socket.on('disconnect', () => {
     for (const id in rooms) {
       const room = rooms[id];
       const player = room.players.find(x => x.socketId === socket.id);
       if (player) {
         player.socketId = null;
-        if (room.players.every(p => !p.socketId)) delete rooms[id];
+        if (room.players.every(p => !p.socketId)) {
+          if (room._deleteTimer) clearTimeout(room._deleteTimer);
+          room._deleteTimer = setTimeout(() => {
+            const r = rooms[id];
+            if (r && r.players.every(p => !p.socketId)) {
+              delete rooms[id];
+              console.log(`房间 ${id} 已删除（5分钟无活动）`);
+            }
+          }, 5 * 60 * 1000);
+        }
         break;
       }
     }
