@@ -187,9 +187,8 @@ function drawCard(room) {
 
 function declareTwo(room, p, cardSuit) {
   const s = room.state;
-  if (s.phase !== 'dealing' || s.trumpSuit !== null) return;
+  if ((s.phase !== 'dealing' && s.phase !== 'flipBottom') || s.trumpSuit !== null) return;
 
-  // 找出玩家手里所有的 2
   const twos = [];
   for (let i = 0; i < s.players[p].length; i++) {
     const c = s.players[p][i];
@@ -202,17 +201,11 @@ function declareTwo(room, p, cardSuit) {
 
   let chosen = null;
   if (cardSuit && cardSuit.length > 0) {
-    // 前端指定了花色
     chosen = twos.find(c => c.suit === cardSuit);
-    if (!chosen) {
-      io.to(room.id).emit('msg', '请选中一张 2');
-      return;
-    }
+    if (!chosen) { io.to(room.id).emit('msg', '请选中一张 2'); return; }
   } else if (twos.length === 1) {
-    // 只有一张 2，自动选
     chosen = twos[0];
   } else {
-    // 多张 2，必须指定
     io.to(room.id).emit('msg', '请选中要办的 2');
     return;
   }
@@ -221,7 +214,15 @@ function declareTwo(room, p, cardSuit) {
   s.declareBy = p;
   if (s.dealer === -1) s.dealer = p;
 
-  // 办2后，直接把剩余牌一次性发完（每人补到 12 张）
+  // 翻底阶段办二：底牌已分好，直接进入拿底牌
+  if (s.phase === 'flipBottom') {
+    for (let k = 0; k < 4; k++) sortHand(s.players[k], s.trumpSuit);
+    io.to(room.id).emit('msg', `${getNick(room, p)} 办了 2，主牌为${SUIT_NAMES[chosen.suit]}`);
+    goToBottom(room);
+    return;
+  }
+
+  // 摸牌阶段办二：把剩余牌一次性发完
   while (s.dealtCounts.some(c => c < 12)) {
     const cur = s.dealCurrent;
     if (s.dealtCounts[cur] < 12) {
@@ -988,8 +989,8 @@ io.on('connection', (socket) => {
       case 'surrender':
         handleSurrender(room, p);
         break;
-          case 'declareTwo':
-        if (s.phase === 'dealing' && s.trumpSuit === null) declareTwo(room, p, params.cardSuit);
+               case 'declareTwo':
+        if ((s.phase === 'dealing' || s.phase === 'flipBottom') && s.trumpSuit === null) declareTwo(room, p, params.cardSuit);
         break;
 
       case 'flipBottom':
