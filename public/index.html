@@ -769,11 +769,10 @@ function render() {
       sel = supplySel.has(i); clickable = true; onclick = `toggleSupply(${i})`;
     } else if (s.phase === 'supplyReturn' && myIndex === s.dealer) {
       sel = returnDealerSel.has(i); clickable = true; onclick = `toggleReturnDealer(${i})`;
-    } else if (s.phase === 'supplyReturn' && myIndex === (s.dealer + 2) % 4) {
+           } else if (s.phase === 'supplyReturn' && myIndex === (s.dealer + 2) % 4) {
       sel = returnPartnerSel.has(i); clickable = true; onclick = `toggleReturnPartner(${i})`;
-        } else if ((s.phase === 'dealing' || s.phase === 'flipBottom') && s.trumpSuit === null && c.rank === '2') {
+    } else if ((s.phase === 'dealing' || s.phase === 'flipBottom') && s.trumpSuit === null && c.rank === '2') {
       sel = selCards.has(i); clickable = true; onclick = `toggleSel(${i})`;
-    }
     } else if (s.phase === 'play' && myIndex === s.currentPlayer) {
       sel = selCards.has(i); clickable = true; onclick = `toggleSel(${i})`;
     }
@@ -801,19 +800,19 @@ function render() {
     (surrenderPhases.includes(s.phase) || (s.phase === 'play' && s.trickNumber === 0 && s.currentTrick.length === 0));
   if (canSurrender) {
     sideAh += `<button onclick="send('surrender')">投降</button>`;
+  }
 
+  const canDeclareTwo = s.trumpSuit === null
+    && (s.phase === 'dealing' || s.phase === 'flipBottom')
+    && (s.players[myIndex] || []).some(c => c.rank === '2');
+  if (canDeclareTwo) {
+    sideAh += `<button class="btn-ban2" onclick="send('declareTwo',{cardSuit:'${selectedTwoSuit}'})">办2</button>`;
+  }
 
   if (s.phase === 'dealing') {
-    if (myIndex === s.dealCurrent && s.dealtCounts[myIndex] < 12) {
+       if (myIndex === s.dealCurrent && s.dealtCounts[myIndex] < 12) {
       ah += `<button class="btn-draw" onclick="send('drawCard')">摸牌 (${s.dealtCounts[myIndex]}/12)</button>`;
     }
-            const canDeclareTwo = s.trumpSuit === null
-      && (s.phase === 'dealing' || s.phase === 'flipBottom')
-      && (s.players[myIndex] || []).some(c => c.rank === '2');
-    if (canDeclareTwo) {
-      sideAh += `<button class="btn-ban2" onclick="send('declareTwo',{cardSuit:'${selectedTwoSuit}'})">办2</button>`;
-    }
-
   } else if (s.phase === 'flipBottom') {
     if (s.trumpSuit === null && myIndex % 2 !== s.dealer % 2) {
       ah += `<button class="btn-sweep" onclick="send('flipBottom')">翻底定主</button>`;

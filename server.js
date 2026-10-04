@@ -217,7 +217,7 @@ function declareTwo(room, p, cardSuit) {
   // 翻底阶段办二：底牌已分好，直接进入拿底牌
   if (s.phase === 'flipBottom') {
     for (let k = 0; k < 4; k++) sortHand(s.players[k], s.trumpSuit);
-    io.to(room.id).emit('msg', `${getNick(room, p)} 办了 2，主牌为${SUIT_NAMES[chosen.suit]}`);
+    io.to(room.id).emit('msg', `${getNick(room, p)} 办了 2`);
     goToBottom(room);
     return;
   }
